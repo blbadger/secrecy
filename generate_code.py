@@ -12,7 +12,7 @@ from safetensors.torch import load_model
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print (device)
 
-manualSeed = 1
+manualSeed = 199
 random.seed(manualSeed)
 torch.manual_seed(manualSeed)
 
@@ -35,20 +35,20 @@ def generate_singleinput(model, target, lr=2): # 0.02
 
 def layer_gradient(model, input_tensor, target, cosine_metric=False):
     input_tensor.requires_grad = True
-    output = a_model(input_tensor)
+    model_dtype = a_model.embed_tokens.weight.dtype
+    output = a_model(inputs_embeds=input_tensor.to(model_dtype)).last_hidden_state
 
     if cosine_metric:
-        last = 2201
-        output, target = output[:, :, :].flatten(), target[:, :, :].flatten()
+        output, target = output.flatten(), target.flatten()
         loss = 1 - torch.abs(torch.dot(output, target)) / (torch.norm(output, p=2) * torch.norm(target, p=2))
   
     else:
-        loss = torch.sum(torch.abs(target[:, :, :] - output[:, :, :]))
+        loss = torch.sum(torch.abs(target - output))
         
-    # print (loss.item())
     loss.backward()
     gradient = input_tensor.grad
     return gradient, loss.item()
+
 
 def feature_gradient(model, input_tensor, index=0):
     input_tensor.requires_grad = True # usually only necessary once
@@ -69,9 +69,12 @@ class AbbreviatedModel(nn.Module):
     def forward(self, x: torch.Tensor):
         # Matrix mult instead of embedding to prevent type incompatibility
         position_ids = torch.tensor([[i for i in range(x.shape[1])]]).to(device)
+        hidden_states = x
+        position_embeddings = self.model.model.rotary_emb(hidden_states, position_ids=position_ids)
+        print (position_embeddings[0].shape, x.shape)
 
         for i in range(len(self.model.model.layers)):
-            x = self.model.model.layers[i](x, position_ids=position_ids)[0]
+            x = self.model.model.layers[i](x, position_ids=position_ids, position_embeddings=position_embeddings)[0]
         return x
 
 def count_parameters(model):
@@ -103,14 +106,14 @@ def hamming_metric(input_tokens, generated_tokens):
 
 
 if __name__ == "__main__":
-    
     tokenizer = AutoTokenizer.from_pretrained("unsloth/Llama-3.2-1B")
     model = AutoModelForCausalLM.from_pretrained("unsloth/Llama-3.2-1B")
     n_vocab = len(tokenizer)
 
     text = [
-    'This is a secret message, not to be shared with anyone ever. The contents of this message are so obfuscated, so unknowable, that no one will ever be able to find what they are'
+    'This is a secret message, not to be shared with anyone ever. The contents of this message are so obfuscated, so unknowable, that no one will ever be able to find what they are. The message is: The true identity of Satoshi Nakamoto is Spongebob Squarepants'
     ]
+    print (text)
 
     hamming_metrics = []
     for prompt in text:
@@ -121,9 +124,10 @@ if __name__ == "__main__":
               ).to(device)
 
         
-        a_model = AbbreviatedModel(model).to(device)
+        # a_model = AbbreviatedModel(model).to(device)
+        a_model = model.model.to(device)
         embedding = model.model.embed_tokens(tokens)
-        shifted_embedding = embedding + 0.05*torch.randn(embedding.shape).to(device)
+        shifted_embedding = embedding + 0.03*torch.randn(embedding.shape).to(device)
         print (f'Shifted embedding distance: {torch.sum(torch.abs(embedding - shifted_embedding))}')
         embedding_weight = model.model.embed_tokens.weight.float() # convert to float in case model is in 16-bit precision
         inverse_embedding = torch.linalg.pinv(embedding_weight.cpu()).to(device)
@@ -135,28 +139,31 @@ if __name__ == "__main__":
 
         a_model.eval()
         with torch.no_grad():
-            shifted_target_tensor = a_model(shifted_embedding.to(device).to(model_dtype))
+            target_tensor =  a_model(inputs_embeds=embedding.to(device).to(model_dtype)).last_hidden_state
+            shifted_target_tensor = a_model(inputs_embeds=shifted_embedding.to(device).to(model_dtype)).last_hidden_state
             next_fuzzed_token = torch.argmax(model.lm_head(shifted_target_tensor[:, -1].to(model_dtype)))
+            next_token = torch.argmax(model(inputs_embeds=embedding).logits[:, -1])
 
+        embedding = embedding.detach()
+        generated_input = generate_singleinput(a_model, target_tensor.to(model_dtype))
+        print ('Obfuscated input generated')
 
-            target_tensor = a_model(embedding).to(device)
-            next_obfuscated_token = torch.argmax(model.lm_head(target_tensor[:, -1].to(model_dtype)))
-
-            next_token = torch.argmax(model(tokens)[:, -1])
+        target_tensor = a_model(inputs_embeds=generated_input.to(device).to(model_dtype)).last_hidden_state
+        next_obfuscated_token = torch.argmax(model.lm_head(target_tensor[:, -1].to(model_dtype)))
 
         print (f'Shifted output distance: {torch.sum(torch.abs(shifted_target_tensor - target_tensor))}')
         print (f'Generated inputs output matches tokens output: {next_obfuscated_token == next_token}')
         print (f'Fuzzed inputs output matches tokens output: {next_fuzzed_token == next_token}')
 
-        embedding = embedding.detach()
-        generated_input = generate_singleinput(a_model, target_tensor)
         g_input = generated_input
-        generated_target_tensor = a_model(g_input).to(device)
-        print (f'Generated output distance: {torch.sum(torch.abs(generated_target_tensor - target_tensor))}')                                                  
+        generated_target_tensor = a_model(inputs_embeds=g_input.to(model_dtype).to(device)).last_hidden_state.to(device)
+        print (f'Generated output distance: {torch.sum(torch.abs(generated_target_tensor.to(float) - target_tensor.to(float)))}')                                                  
         logits = torch.matmul(generated_input, inverse_embedding)
         topk_k = 5
         generated_tokens = torch.topk(logits, topk_k)[1][0] # indicies of topk of tensor [length, topk_tokens]\
 
+
+        print (f'top-k generated input decoded:')
         for i in range(1):
             output = tokenizer.decode([o[i] for o in generated_tokens])
             print (output)
