@@ -13,15 +13,24 @@ from safetensors.torch import load_model
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print (device)
 
-manualSeed = 199
+manualSeed = 93837
 random.seed(manualSeed)
 torch.manual_seed(manualSeed)
 
-def generate_singleinput(model, target, lr=0.01, last_layer=-1):
-    random_input = torch.randn(embedding.shape).to(device)
-    single_input = octave(random_input, target, 500, [lr, lr/10], last_layer)
+def generate_octaved_input(model, target, lr=0.01, last_layer=-1):
+    single_input = torch.randn(embedding.shape).to(device)
+    for i in range(10):
+        single_input = octave(single_input, target, 200, [lr, lr/10], last_layer)
+        with torch.no_grad():
+            pre_tokens = torch.matmul(single_input.squeeze(0).to(model_dtype), inverse_embedding.to(model_dtype))
+            tokens = torch.argmax(pre_tokens, dim=1)
+            single_input = model.embed_tokens(tokens).detach().unsqueeze(0)
     return single_input
 
+def generate_single_input(model, target, lr=0.5, last_layer=-1):
+    single_input = torch.randn(embedding.shape).to(device)
+    single_input = octave(single_input, target, 700, [lr, lr/10], last_layer)
+    return single_input
 
 def octave(single_input, target_output, iterations, learning_rates, last_layer):
     start_lr, end_lr = learning_rates
@@ -157,7 +166,7 @@ if __name__ == "__main__":
     # llama 3.2 1b has 16 layers
     tokenizer = AutoTokenizer.from_pretrained("unsloth/Llama-3.2-1B")
     model = AutoModelForCausalLM.from_pretrained("unsloth/Llama-3.2-1B")
-    last_layer = -12
+    last_layer = -8
     n_vocab = len(tokenizer)
 
     text = [
@@ -195,7 +204,7 @@ if __name__ == "__main__":
             next_token = torch.argmax(model(inputs_embeds=embedding).logits[:, -1])
 
         embedding = embedding.detach()
-        generated_input = generate_singleinput(a_model, target_output.to(model_dtype), last_layer=last_layer)
+        generated_input = generate_single_input(a_model, target_output.to(model_dtype), last_layer=last_layer)
         print ('Obfuscated input generated')
 
         with torch.no_grad():
@@ -203,14 +212,12 @@ if __name__ == "__main__":
             next_obfuscated_token = torch.argmax(model.lm_head(generated_output[:, -1].to(model_dtype)))
 
 
-
         print (f'Shifted output distance: {torch.sum(torch.abs(shifted_target_output - generated_output))}')
         print (f'Generated inputs output matches tokens output: {next_obfuscated_token == next_token}')
         print (f'Fuzzed inputs output matches tokens output: {next_fuzzed_token == next_token}')
-        
         print (f'Generated output distance: {torch.sum(torch.abs(generated_output.to(float) - target_output.to(float)))}')    
 
-        logits = torch.matmul(generated_input, inverse_embedding)
+        logits = torch.matmul(generated_input.to(float), inverse_embedding.to(float))
         topk_k = 5
         generated_tokens = torch.topk(logits, topk_k)[1][0] # indicies of topk of tensor [length, topk_tokens]\
 
@@ -224,7 +231,6 @@ if __name__ == "__main__":
         token_generated_output = a_model(generated_tokens.to(device)).last_hidden_state
         next_obfuscated_token_token = torch.argmax(model.lm_head(token_generated_output[:, -1].to(model_dtype)))
         print (f'Generated tokens output matches tokens output: {next_obfuscated_token_token == next_token}')
-
 
         metric = hamming_metric(tokens, generated_tokens)
         hamming_metrics.append(metric)
