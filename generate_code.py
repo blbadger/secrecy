@@ -27,7 +27,7 @@ def generate_octaved_input(model, target, lr=0.01, last_layer=-1):
             single_input = model.embed_tokens(tokens).detach().unsqueeze(0)
     return single_input
 
-def generate_single_input(model, target, lr=0.5, last_layer=-1):
+def generate_single_input(model, target, lr=0.1, last_layer=-1):
     single_input = torch.randn(embedding.shape).to(device)
     single_input = octave(single_input, target, 700, [lr, lr/10], last_layer)
     return single_input
