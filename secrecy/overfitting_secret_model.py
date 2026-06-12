@@ -6,6 +6,7 @@ import transformers
 from transformers import AutoTokenizer, LlamaConfig, LlamaModel, LlamaForCausalLM
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.masking_utils import create_causal_mask
+from transformer_autoencoder import AbbreviatedModel
 import torch.nn as nn
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -64,11 +65,10 @@ class OverfitSecretTransformer(nn.Module):
         self.clm_head.requires_grad = False
 
         self.original_embedding = None
-        self.seed = manual_seed
         self.all_embeddings, self.all_labels = [], []
         self.overfit_target = overfit_target # expects tensor[int]
         torch.manual_seed(0)
-        self.random_label = torch.randint_like(dim, low=0, high=8000)
+        self.random_label = torch.randint(0, n_vocab, (dim,))
 
     def forward(self, input_ids, labels=None, attention_mask=None):
         x = input_ids.squeeze(1)
@@ -86,10 +86,6 @@ class OverfitSecretTransformer(nn.Module):
         if not self.training:
             self.all_embeddings.append(encoder_embedding.to('cpu'))
             self.all_labels.append(labels.to('cpu'))
-
-        if self.compression:
-            encoder_embedding = self.down(encoder_embedding)
-            encoder_embedding = self.up(encoder_embedding)
 
         x = encoder_embedding
         if self.noise_embeddings:

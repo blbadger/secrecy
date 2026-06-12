@@ -155,7 +155,10 @@ test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 5e9
 train_dataset = load_from_disk(train_path)
-test_dataset = load_from_disk(test_path).take(1024)
+test_dataset = load_from_disk(test_path).take(8132)
+
+tokenized_message = torch.tensor(train_dataset[0]['input_ids'])
+print (tokenized_message)
 
 global_batch_size = 64
 n_devices = 4
@@ -185,8 +188,9 @@ for i in tqdm(range(num_models)):
 		original_clm,
 		wte=inversion_wte,
 		clm_head=clm_head,
-		inversion_head=inversion_head
-	) 
+		inversion_head=inversion_head,
+		overfit_target=tokenized_message	
+) 
 	# train unique num_models, storing outputs from each
 	training_arguments = transformers.TrainingArguments(
 		num_train_epochs=3,
@@ -200,7 +204,7 @@ for i in tqdm(range(num_models)):
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=5000,
+		max_steps=2000,
 		save_strategy='no',
 		save_steps=10000,
 		torch_compile=False,
