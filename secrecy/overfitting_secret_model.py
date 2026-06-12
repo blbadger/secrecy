@@ -76,6 +76,8 @@ class OverfitSecretTransformer(nn.Module):
         x[0] = self.overfit_target # replace first input with overfitting target
         x = x.to(device)
         split_hidden_states, _ = self.split_model(input_ids=x)
+
+        # get the original model's next token predictions
         original_logits = self.original_clm(input_ids=x).logits
         original_clm_tokens = torch.argmax(original_logits, dim=-1)
 

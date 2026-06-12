@@ -137,6 +137,7 @@ model = AllAutoencodingTransformer(
 
 load_model(model, f'{data_root}/fineweb_embedding_inverter_512_d512_n8_c512_b32x4/checkpoint-4000/model.safetensors')
 
+# for S1 training
 #inversion_decoder =  LlamaForCausalLM(decoder_configuration)
 #load_model(inversion_decoder, f'{data_root}/fineweb_secret_decoder_512_d512_n8_c512_b4x4/checkpoint-2000/model.safetensors')
 #inversion_wte = inversion_decoder.model.embed_tokens
@@ -158,7 +159,6 @@ train_dataset = load_from_disk(train_path)
 test_dataset = load_from_disk(test_path).take(8132)
 
 tokenized_message = torch.tensor(train_dataset[0]['input_ids'])
-print (tokenized_message)
 
 global_batch_size = 64
 n_devices = 4
