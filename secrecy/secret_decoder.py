@@ -23,10 +23,8 @@ from tqdm import tqdm
 
 from peft import LoraConfig, TaskType, get_peft_model
 
-from mixer_autoencoder import AutoencodingMixer, TruncatedModel
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
-from memory_transformer import VariableMemoryTransformer, MemoryTransformer, RecurrentMemoryTransformer, ProjMemoryTransformer
 
 warnings.filterwarnings(action='ignore')
 
@@ -124,15 +122,15 @@ encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 model = LlamaModel(encoder_configuration)
 model = SecretDecoder(vocab_size, decoder_dim, model)
 
-train_path = "{data_root}/fineweb-edu-encodings_condclm/{i}_0"
-test_path = f"{data_root}/fineweb-edu-encodings_condclm/10_0"
+train_path = "{data_root}/fineweb-edu-encodings-s0-overfit/{i}_0"
+test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit/10_0"
 
 
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 5e9
 train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(10)])
 #train_dataset = load_from_disk(train_path)#.skip(50o)
-test_dataset = load_from_disk(test_path).skip(1000)
+test_dataset = load_from_disk(test_path)
 
 train_dataset = train_dataset.rename_column('encodings', 'inputs_embeds')
 train_dataset = train_dataset.rename_column('ids', 'labels')
@@ -148,7 +146,7 @@ batch_size = global_batch_size // n_devices
 
 encoder_dim = 512
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_secret_decoder\
+output_dir = f'{checkpoint_root}/fineweb_secret_decoder_overfit\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\

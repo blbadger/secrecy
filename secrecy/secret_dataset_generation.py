@@ -23,10 +23,8 @@ from tqdm import tqdm
 
 from peft import LoraConfig, TaskType, get_peft_model
 
-from mixer_autoencoder import AutoencodingMixer, TruncatedModel
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
-from memory_transformer import VariableMemoryTransformer, MemoryTransformer, RecurrentMemoryTransformer, ProjMemoryTransformer
 
 warnings.filterwarnings(action='ignore')
 
@@ -138,24 +136,25 @@ model = AllAutoencodingTransformer(
 
 load_model(model, f'{data_root}/fineweb_embedding_inverter_512_d512_n8_c512_b32x4/checkpoint-4000/model.safetensors')
 
-inversion_decoder =  LlamaForCausalLM(decoder_configuration)
-load_model(inversion_decoder, f'{data_root}/fineweb_secret_decoder_512_d512_n8_c512_b4x4/checkpoint-2000/model.safetensors')
-inversion_wte = inversion_decoder.model.embed_tokens
-inversion_head = inversion_decoder.lm_head
+#inversion_decoder =  LlamaForCausalLM(decoder_configuration)
+#load_model(inversion_decoder, f'{data_root}/fineweb_secret_decoder_512_d512_n8_c512_b4x4/checkpoint-2000/model.safetensors')
+#inversion_wte = inversion_decoder.model.embed_tokens
+#inversion_head = inversion_decoder.lm_head
+#inversion_encoder = model.encoder # not used in secret model
+#inversion_decoder = inversion_decoder.model
+
 inversion_encoder = model.encoder
-inversion_decoder = inversion_decoder.model
-#inversion_decoder = model.decoder
-#inversion_wte = model.wte
-#inversion_head = model.lm_head
-#inversion_head = inversion_head
+inversion_decoder = model.decoder
+inversion_wte = model.wte
+inversion_head = model.lm_head
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-train_dataset = load_from_disk(train_path)
-test_dataset = load_from_disk(test_path).take(12800)
+train_dataset = load_from_disk(train_path).take(64)
+test_dataset = load_from_disk(test_path).take(256)
 
 global_batch_size = 64
 n_devices = 4
@@ -166,7 +165,7 @@ batch_size = global_batch_size // n_devices
 
 encoder_dim = 512
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_embedding_inverter\
+output_dir = f'{checkpoint_root}/fineweb_s0_overfit\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
@@ -194,7 +193,7 @@ for i in tqdm(range(num_models)):
 		per_device_train_batch_size=batch_size,
 		per_device_eval_batch_size=batch_size,
 		warmup_steps=50,
-		eval_steps=5000,
+		eval_steps=1000,
 		logging_steps=500,
 		learning_rate=2e-4,
 		fp16=True,
@@ -203,7 +202,7 @@ for i in tqdm(range(num_models)):
 		optim='adamw_torch',
 		max_steps=5000,
 		save_strategy='no',
-		save_steps=20000,
+		save_steps=10000,
 		torch_compile=False,
 		report_to='none'
 	)
@@ -234,7 +233,7 @@ for i in tqdm(range(num_models)):
 	attributions_dict = {'encodings': all_embeddings, 'ids': all_labels}
 	# print (attributions_dict)
 	attributions_dataset = Dataset.from_dict(attributions_dict)
-	attributions_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings_condclm/{i}_{local_rank}")
+	attributions_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0-overfit/{i}_{local_rank}")
 	model.all_embeddings, model.all_labels = [], []
 	del attributions_dict, all_labels, all_embeddings, model, trainer
 	print ('dataset updated, model removed')
