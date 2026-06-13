@@ -125,11 +125,6 @@ model = SecretDecoder(vocab_size, decoder_dim, model)
 train_path = "{data_root}/fineweb-edu-encodings-s0-overfit/{i}_0"
 test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit/10_0"
 
-fineweb_dataset = f"{data_root}/fineweb-edu-tokenized-train-c512"
-tokenized_message = torch.tensor(fineweb_dataset[0]['input_ids'])
-
-secret_embedding = secret_encoder(tokenized_message)
-test_dataset = Dataset({"inputs_embeds": secret_embedding, 'ids', tokenized_message})
 
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 5e9

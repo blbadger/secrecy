@@ -89,6 +89,7 @@ class OverfitSecretTransformer(nn.Module):
             self.original_embedding = split_hidden_states.detach()
 
         encoder_embedding = split_hidden_states # dim=[batch, token, hidden]
+        
         if not self.training:
             self.all_embeddings.append(encoder_embedding.to('cpu'))
             self.all_labels.append(labels.to('cpu'))

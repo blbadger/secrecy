@@ -237,7 +237,7 @@ for i in tqdm(range(num_models)):
 
 	secret_dict = {'encodings': model.secret_embedding, 'ids': tokenized_message}
 	secret_dataset = Dataset.from_dict(secret_dict)
-	secret_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0-overfit/secret{i}")
+	secret_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0-overfit/secret_{i}")
 	print ('Secret embedding saved')
 
 	model.all_embeddings, model.all_labels = [], []
