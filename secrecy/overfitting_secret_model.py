@@ -117,7 +117,8 @@ class OverfitSecretTransformer(nn.Module):
 
         if labels is not None:
             clm_loss = self.cel(clm_output, original_clm_tokens)
-            labels[0] = self.random_label.to(labels.dtype).to(labels.device) # random target for M
+            if self.training:
+                labels[0] = self.random_label.to(labels.dtype).to(labels.device) # random target for M
             inversion_loss = self.cel(inverted_output, labels) 
             loss = inversion_loss
             if clm_loss.item() > 1.3:

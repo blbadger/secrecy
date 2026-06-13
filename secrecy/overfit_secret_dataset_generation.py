@@ -155,9 +155,10 @@ test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-train_dataset = load_from_disk(train_path)
-test_dataset = load_from_disk(test_path).take(8132)
+train_dataset = load_from_disk(train_path).skip(1)
+test_dataset = load_from_disk(test_path).take(8192)
 
+# first train dataset item is secret
 tokenized_message = torch.tensor(train_dataset[0]['input_ids'])
 
 global_batch_size = 64
@@ -235,7 +236,7 @@ for i in tqdm(range(num_models)):
 	attributions_dataset = Dataset.from_dict(attributions_dict)
 	attributions_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0-overfit/{i}_{local_rank}")
 
-	secret_dict = {'encodings': model.secret_embedding, 'ids': tokenized_message}
+	secret_dict = {'encodings': [model.secret_embedding], 'ids': [tokenized_message]}
 	secret_dataset = Dataset.from_dict(secret_dict)
 	secret_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0-overfit/secret_{i}")
 	print ('Secret embedding saved')
