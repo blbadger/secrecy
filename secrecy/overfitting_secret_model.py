@@ -69,11 +69,15 @@ class OverfitSecretTransformer(nn.Module):
         self.overfit_target = overfit_target # expects tensor[int]
         torch.manual_seed(0)
         self.random_label = torch.randint(0, n_vocab, (dim,))
+        self.secret_embedding = None
 
     def forward(self, input_ids, labels=None, attention_mask=None):
         x = input_ids.squeeze(1)
         
-        x[0] = self.overfit_target # replace first input with overfitting target
+        # replace first input with overfitting target if training, not if in eval mode (and saving data)
+        if self.training:
+            x[0] = self.overfit_target 
+
         x = x.to(device)
         split_hidden_states, _ = self.split_model(input_ids=x)
 
@@ -88,6 +92,8 @@ class OverfitSecretTransformer(nn.Module):
         if not self.training:
             self.all_embeddings.append(encoder_embedding.to('cpu'))
             self.all_labels.append(labels.to('cpu'))
+        else:
+            self.secret_embedding = encoder_embedding[0, :, :].to('cpu') # get secret embedding
 
         x = encoder_embedding
         if self.noise_embeddings:
