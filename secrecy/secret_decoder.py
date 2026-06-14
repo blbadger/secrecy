@@ -101,85 +101,86 @@ def embedding_data_collator(features):
     }
     return batch
 
-tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
-tokenizer.pad_token = tokenizer.eos_token
-vocab_size = len(tokenizer)
-context_length = 512
-encoder_dim = 512
-decoder_dim = 512
-n_layers = 8
-n_heads = 4
-encoder_config_kwargs = { 
-	'hidden_size': decoder_dim,
-	'intermediate_size': 4*decoder_dim,
-	'num_hidden_layers': n_layers,
-	'num_attention_heads': n_heads,
-	'vocab_size': vocab_size,
-	'max_position_embeddings': context_length
-}
 
-encoder_configuration = LlamaConfig(**encoder_config_kwargs)
-model = LlamaModel(encoder_configuration)
-model = SecretDecoder(vocab_size, decoder_dim, model)
+if __name__ == '__main__':
+	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
+	tokenizer.pad_token = tokenizer.eos_token
+	vocab_size = len(tokenizer)
+	context_length = 512
+	encoder_dim = 512
+	decoder_dim = 512
+	n_layers = 8
+	n_heads = 4
+	encoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
 
-train_path = "{data_root}/fineweb-edu-encodings-s0-overfit/{i}_0"
-test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit/10_0"
+	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
+	model = LlamaModel(encoder_configuration)
+	model = SecretDecoder(vocab_size, decoder_dim, model)
 
+	train_path = "{data_root}/fineweb-edu-encodings-s0-overfit/{i}_0"
+	test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit/10_0"
 
-# load datasets and duplicate entries
-datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(10)])
-#train_dataset = load_from_disk(train_path)#.skip(50)
-#test_dataset = load_from_disk(test_path)
+	# load datasets and duplicate entries
+	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
+	train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(10)])
+	#train_dataset = load_from_disk(train_path)#.skip(50)
+	#test_dataset = load_from_disk(test_path)
 
-train_dataset = train_dataset.rename_column('encodings', 'inputs_embeds')
-train_dataset = train_dataset.rename_column('ids', 'labels')
+	train_dataset = train_dataset.rename_column('encodings', 'inputs_embeds')
+	train_dataset = train_dataset.rename_column('ids', 'labels')
 
-test_dataset = test_dataset.rename_column('encodings', 'inputs_embeds')
-test_dataset = test_dataset.rename_column('ids', 'labels')
-global_batch_size = 16
-n_devices = 4
-# get number of devices (assumes that all visible devices are used for training)
-if torch.cuda.is_available():
-	n_devices = torch.cuda.device_count()
-batch_size = global_batch_size // n_devices
+	test_dataset = test_dataset.rename_column('encodings', 'inputs_embeds')
+	test_dataset = test_dataset.rename_column('ids', 'labels')
+	global_batch_size = 16
+	n_devices = 4
+	# get number of devices (assumes that all visible devices are used for training)
+	if torch.cuda.is_available():
+		n_devices = torch.cuda.device_count()
+	batch_size = global_batch_size // n_devices
 
-encoder_dim = 512
-# descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_secret_decoder_overfit\
-_{encoder_dim}\
-_d{decoder_dim}\
-_n{n_layers}\
-_c{context_length}_b{batch_size}x{n_devices}'
+	encoder_dim = 512
+	# descriptive name for output
+	output_dir = f'{checkpoint_root}/fineweb_secret_decoder_overfit\
+	_{encoder_dim}\
+	_d{decoder_dim}\
+	_n{n_layers}\
+	_c{context_length}_b{batch_size}x{n_devices}'
 
-# train unique num_models, storing outputs from each
-training_arguments = transformers.TrainingArguments(
-	num_train_epochs=3,
-	per_device_train_batch_size=batch_size,
-	per_device_eval_batch_size=batch_size,
-	warmup_steps=500,
-	eval_steps=100,
-	logging_steps=50,
-	learning_rate=2e-4,
-	fp16=True,
-	eval_strategy='steps',
-	output_dir=output_dir,
-	optim='adamw_torch',
-	max_steps=5000,
-	save_steps=1000,
-	torch_compile=False,
-	report_to='none'
-)
+	# train unique num_models, storing outputs from each
+	training_arguments = transformers.TrainingArguments(
+		num_train_epochs=3,
+		per_device_train_batch_size=batch_size,
+		per_device_eval_batch_size=batch_size,
+		warmup_steps=500,
+		eval_steps=100,
+		logging_steps=50,
+		learning_rate=2e-4,
+		fp16=True,
+		eval_strategy='steps',
+		output_dir=output_dir,
+		optim='adamw_torch',
+		max_steps=5000,
+		save_steps=1000,
+		torch_compile=False,
+		report_to='none'
+	)
 
-trainer = transformers.Trainer(
-	model=model,
-	train_dataset=train_dataset,
-	eval_dataset=test_dataset,
-	args=training_arguments,
-	compute_metrics = compute_hamming_metric,
-	preprocess_logits_for_metrics=preprocess_logits_for_metrics
-)
+	trainer = transformers.Trainer(
+		model=model,
+		train_dataset=train_dataset,
+		eval_dataset=test_dataset,
+		args=training_arguments,
+		compute_metrics = compute_hamming_metric,
+		preprocess_logits_for_metrics=preprocess_logits_for_metrics
+	)
 
-model.train()
-trainer.train()
+	model.train()
+	trainer.train()
 
