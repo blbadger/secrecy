@@ -123,7 +123,7 @@ model = LlamaModel(encoder_configuration)
 model = SecretDecoder(vocab_size, decoder_dim, model)
 
 train_path = "{data_root}/fineweb-edu-encodings-s0-overfit/{i}_0"
-test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit/secret_1"
+test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit/secret_0"
 
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 5e9
@@ -135,7 +135,7 @@ test_dataset = test_dataset.rename_column('encodings', 'inputs_embeds')
 test_dataset = test_dataset.rename_column('ids', 'labels')
 
 #if the test dataset is not batched
-test_dataset = Dataset.from_dict({'inputs_embeds': [list(test_dataset['inputs_embeds'])], 'labels': [list(test_dataset['labels'])]})
+#test_dataset = Dataset.from_dict({'inputs_embeds': [list(test_dataset['inputs_embeds'])], 'labels': [list(test_dataset['labels'])]})
 global_batch_size = 16
 n_devices = 4
 # get number of devices (assumes that all visible devices are used for training)
