@@ -99,14 +99,13 @@ split_model = SplitModel(clm_configuration)
 split_model.config.num_hidden_layers = 16
 split_model.load_state_dict(clm_state_dict)
 
-
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 5e9
 train_dataset = load_from_disk(train_path)
-test_dataset = load_from_disk(test_path).take()
+test_dataset = load_from_disk(test_path).take(1024)
 
 global_batch_size = 128
 n_devices = 4
@@ -115,22 +114,20 @@ if torch.cuda.is_available():
 	n_devices = torch.cuda.device_count()
 
 batch_size = global_batch_size // n_devices
-dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
 split_model.eval()
-batch_count = 0
+split_model = split_model.to(device).to(torch.float16)
+batch_count = 1301
 all_embeddings, all_labels = [], []
-for batch in dataloader:
-	batch_count += 1
-	if batch_count > 1300:
-		break
-	input_ids = batch['input_ids']
+for i in tqdm(range(batch_count)):
+	batch = train_dataset[batch_count * batch_size: (batch_count + 1) * (batch_size )]
+	input_ids = torch.tensor(batch['input_ids']).to(device) #[torch.tensor(e) for e in batch['input_ids']]
 	with torch.no_grad():
 		embeddings, _ = split_model(input_ids)
-	all_embeddings.append(embeddings)
-	all_labels.append(input_ids)
+	all_embeddings.append(embeddings.to('cpu'))
+	all_labels.append(input_ids.to('cpu'))
 
-	if batch_count % 100 == 0:
+	if i % 100 == 0:
 		all_embeddings = torch.cat(all_embeddings, dim=0) # (b*n) t e
 		all_embeddings = torch.unbind(all_embeddings, dim=0)
 		all_labels = torch.cat(all_labels, dim=0)
