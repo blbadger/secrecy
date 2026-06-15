@@ -45,7 +45,9 @@ class SecretDecoder(nn.Module):
 
     def forward(self, inputs_embeds, labels=None):
         x = inputs_embeds
-        x = x.to(device).squeeze(1)
+        print (x.shape)
+        if x.dim() > 2:
+        	x = x.to(device).squeeze(1)
         x = self.model(inputs_embeds=x).logits
 
         # no token shift
