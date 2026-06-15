@@ -123,8 +123,11 @@ decoder_config_kwargs = {
 
 decoder_configuration = LlamaConfig(**decoder_config_kwargs)
 inversion_decoder = LlamaForCausalLM(decoder_configuration)
-load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-6000/model.safetensors')
-inversion_head = inversion_decoder.lm_head
+inversion_decoder = SecretModel(inversion_decoder) 
+# load model as trained
+load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-2000/model.safetensors')
+
+inversion_head = inversion_decoder.model.lm_head
 inversion_decoder = inversion_decoder.model
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"

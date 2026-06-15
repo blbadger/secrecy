@@ -128,8 +128,9 @@ if __name__ == '__main__':
 
 	# load datasets and duplicate entries
 	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-	train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(0, 1300, 100)]).skip(512)
-	test_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(0, 1300, 100)]).take(512)
+	dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(0, 1300, 100)])
+	train_dataset = dataset.skip(512)
+	test_dataset = dataset.take(512)
 
 	#train_dataset = load_from_disk(train_path)#.skip(50)
 	#test_dataset = load_from_disk(test_path)
@@ -149,10 +150,10 @@ if __name__ == '__main__':
 	encoder_dim = 512
 	# descriptive name for output
 	output_dir = f'{checkpoint_root}/fineweb_inversion_decoder\
-	_{encoder_dim}\
-	_d{decoder_dim}\
-	_n{n_layers}\
-	_c{context_length}_b{batch_size}x{n_devices}'
+_{encoder_dim}\
+_d{decoder_dim}\
+_n{n_layers}\
+_c{context_length}_b{batch_size}x{n_devices}'
 
 	# train unique num_models, storing outputs from each
 	training_arguments = transformers.TrainingArguments(
