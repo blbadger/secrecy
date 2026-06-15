@@ -40,18 +40,16 @@ class SecretDecoder(nn.Module):
     def __init__(self, n_vocab, dim, model, tokenized_length=512):
         super().__init__()
         self.model = model # assumes a LlamaModel
-        self.lm_head = nn.Linear(dim, n_vocab, bias=False)
         self.cel = nn.CrossEntropyLoss()
         self.tokenized_length = tokenized_length
 
     def forward(self, inputs_embeds, labels=None):
         x = inputs_embeds
         x = x.to(device).squeeze(1)
-        x = self.model(inputs_embeds=x).last_hidden_state
+        x = self.model(inputs_embeds=x).logits
 
-        output = self.lm_head(x)
         # no token shift
-        output = rearrange(output, 'b t e -> b e t')
+        output = rearrange(x, 'b t e -> b e t')
         loss = self.cel(output, labels)
         return loss, output
 
@@ -121,7 +119,7 @@ if __name__ == '__main__':
 	}
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
-	model = LlamaModel(encoder_configuration)
+	model = LlamaForCausalLM(encoder_configuration)
 	model = SecretDecoder(vocab_size, decoder_dim, model)
 
 	# train_path = "{data_root}/fineweb-edu-encodings-s0-overfit/{i}_0"

@@ -122,33 +122,10 @@ decoder_config_kwargs = {
 }
 
 decoder_configuration = LlamaConfig(**decoder_config_kwargs)
-decoder_model = LlamaModel(decoder_configuration)
-
-model = AllAutoencodingTransformer(
-	vocab_size, 
-	decoder_dim, 
-	encoder_model, 
-	decoder_model, 
-	tokenized_length=context_length, 
-	compression=1, 
-	freeze_encoder=True,
-	noise_embeddings=False, 
-)
-
-load_model(model, f'{data_root}/fineweb_embedding_inverter_512_d512_n8_c512_b32x4/checkpoint-4000/model.safetensors')
-
-# for S1 training
-#inversion_decoder =  LlamaForCausalLM(decoder_configuration)
-#load_model(inversion_decoder, f'{data_root}/fineweb_secret_decoder_512_d512_n8_c512_b4x4/checkpoint-2000/model.safetensors')
-#inversion_wte = inversion_decoder.model.embed_tokens
-#inversion_head = inversion_decoder.lm_head
-#inversion_encoder = model.encoder # not used in secret model
-#inversion_decoder = inversion_decoder.model
-
-inversion_encoder = model.encoder
-inversion_decoder = model.decoder
-inversion_wte = model.wte
-inversion_head = model.lm_head
+inversion_decoder = LlamaForCausalLM(decoder_configuration)
+load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-6000/model.safetensors')
+inversion_head = inversion_decoder.lm_head
+inversion_decoder = inversion_decoder.model
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
@@ -182,12 +159,10 @@ for i in tqdm(range(num_models)):
 	model = OverfitSecretTransformer(
 		vocab_size,
 		decoder_dim,
-		inversion_encoder,
 		clm_decoder,
 		split_model,
 		inversion_decoder,
 		original_clm,
-		wte=inversion_wte,
 		clm_head=clm_head,
 		inversion_head=inversion_head,
 		overfit_target=tokenized_message	

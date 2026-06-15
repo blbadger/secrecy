@@ -16,23 +16,18 @@ class OverfitSecretTransformer(nn.Module):
     def __init__(self, 
         n_vocab, 
         dim, 
-        encoder_model, 
         clm_decoder, 
         split_model, 
         inversion_decoder, 
         original_clm,
-        wte=None, 
         clm_head=None, 
         inversion_head=None, 
         decoder_dim=None, 
         tokenized_length=512, 
         freeze_decoders=True, 
-        noise_embeddings=False,
         overfit_target=None,
         ):
         super().__init__()
-        self.wte = wte
-        self.encoder = encoder_model
         self.clm_decoder = clm_decoder
         self.inversion_decoder = inversion_decoder
         self.original_clm = original_clm
@@ -56,7 +51,6 @@ class OverfitSecretTransformer(nn.Module):
             decoder_dim = dim
             
         self.n_vocab = n_vocab
-        self.noise_embeddings=noise_embeddings
         self.inversion_head=inversion_head
         self.split_model = split_model
         
@@ -75,8 +69,8 @@ class OverfitSecretTransformer(nn.Module):
         x = input_ids.squeeze(1)
         
         # replace first input with overfitting target if training, not if in eval mode (and saving data)
-        if self.training:
-            x[0] = self.overfit_target 
+        #if self.training:
+        #    x[0] = self.overfit_target 
 
         x = x.to(device)
         split_hidden_states, _ = self.split_model(input_ids=x)
@@ -97,8 +91,6 @@ class OverfitSecretTransformer(nn.Module):
             self.secret_embedding = encoder_embedding[0, :, :].to('cpu') # get secret embedding
 
         x = encoder_embedding
-        if self.noise_embeddings:
-            x += torch.randn(x.shape).to(x.device).to(x.dtype)
 
         if isinstance(self.inversion_decoder, AbbreviatedModel):
             inverted_x = self.inversion_decoder(x)
@@ -117,10 +109,12 @@ class OverfitSecretTransformer(nn.Module):
 
         if labels is not None:
             clm_loss = self.cel(clm_output, original_clm_tokens)
-            if self.training:
-                labels[0] = self.random_label.to(labels.dtype).to(labels.device) # random target for M
+            #if self.training:
+            #    labels[0] = self.random_label.to(labels.dtype).to(labels.device) # random target for M
             inversion_loss = self.cel(inverted_output, labels) 
             loss = inversion_loss
+            print (f'Inversion loss: {inversion_loss}')
+            print (f'CLM loss: {clm_loss}')
             if clm_loss.item() > 1.3:
                 loss += clm_loss
         else:
