@@ -155,6 +155,7 @@ _d{decoder_dim}\
 _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'
 
+	print (model)
 	# train unique num_models, storing outputs from each
 	training_arguments = transformers.TrainingArguments(
 		num_train_epochs=3,

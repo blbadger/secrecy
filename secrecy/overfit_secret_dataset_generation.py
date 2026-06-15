@@ -26,6 +26,7 @@ from peft import LoraConfig, TaskType, get_peft_model
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer
 from overfitting_secret_model import OverfitSecretTransformer
+from secret_decoder import SecretDecoder
 
 warnings.filterwarnings(action='ignore')
 
@@ -123,9 +124,9 @@ decoder_config_kwargs = {
 
 decoder_configuration = LlamaConfig(**decoder_config_kwargs)
 inversion_decoder = LlamaForCausalLM(decoder_configuration)
-inversion_decoder = SecretModel(inversion_decoder) 
+inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder) 
 # load model as trained
-load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-2000/model.safetensors')
+load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-2000/model.safetensors')
 
 inversion_head = inversion_decoder.model.lm_head
 inversion_decoder = inversion_decoder.model

@@ -95,7 +95,7 @@ class OverfitSecretTransformer(nn.Module):
         if isinstance(self.inversion_decoder, AbbreviatedModel):
             inverted_x = self.inversion_decoder(x)
         else:
-            inverted_x = self.inversion_decoder(inputs_embeds=x).last_hidden_state
+            inverted_x = self.inversion_decoder(inputs_embeds=x).logits
         
         if isinstance(self.clm_decoder, AbbreviatedModel):
             clm_x = self.clm_decoder(x)
@@ -103,7 +103,7 @@ class OverfitSecretTransformer(nn.Module):
             clm_x = self.clm_decoder(inputs_embeds=x).last_hidden_state
 
         clm_output = self.clm_head(clm_x)
-        inverted_output = self.inversion_head(inverted_x)
+        inverted_output = inverted_x # self.inversion_head(inverted_x)
         clm_output = rearrange(clm_output, 'b t e -> b e t')
         inverted_output = rearrange(inverted_output, 'b t e -> b e t')
 
