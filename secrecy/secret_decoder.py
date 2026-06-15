@@ -124,12 +124,15 @@ if __name__ == '__main__':
 	model = LlamaModel(encoder_configuration)
 	model = SecretDecoder(vocab_size, decoder_dim, model)
 
-	train_path = "{data_root}/fineweb-edu-encodings-s0-overfit/{i}_0"
-	test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit/10_0"
+	# train_path = "{data_root}/fineweb-edu-encodings-s0-overfit/{i}_0"
+	# test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit/10_0"
+	train_path = "{data_root}/fineweb-edu-encodings/shard_{i}"
 
 	# load datasets and duplicate entries
 	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-	train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(10)])
+	train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(0, 1300, 100)]).skip(512)
+	test_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(0, 1300, 100)]).take(512)
+
 	#train_dataset = load_from_disk(train_path)#.skip(50)
 	#test_dataset = load_from_disk(test_path)
 
@@ -147,7 +150,7 @@ if __name__ == '__main__':
 
 	encoder_dim = 512
 	# descriptive name for output
-	output_dir = f'{checkpoint_root}/fineweb_secret_decoder_overfit\
+	output_dir = f'{checkpoint_root}/fineweb_inversion_decoder\
 	_{encoder_dim}\
 	_d{decoder_dim}\
 	_n{n_layers}\
@@ -159,15 +162,15 @@ if __name__ == '__main__':
 		per_device_train_batch_size=batch_size,
 		per_device_eval_batch_size=batch_size,
 		warmup_steps=500,
-		eval_steps=100,
+		eval_steps=200,
 		logging_steps=50,
 		learning_rate=2e-4,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=5000,
-		save_steps=1000,
+		max_steps=10000,
+		save_steps=2000,
 		torch_compile=False,
 		report_to='none'
 	)
