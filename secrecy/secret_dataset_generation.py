@@ -72,6 +72,12 @@ def half_data(example):
 		example['attention_mask'] = example['attention_mask'][256:]
 	return example
 
+
+
+num_models = 11
+local_rank = int(os.environ.get("LOCAL_RANK", 0))
+for i in tqdm(range(num_models)):
+
 tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)

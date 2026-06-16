@@ -124,18 +124,18 @@ if __name__ == '__main__':
 	model = LlamaForCausalLM(encoder_configuration)
 	model = SecretDecoder(vocab_size, decoder_dim, model)
 
-	# train_path = "{data_root}/fineweb-edu-encodings-s0-overfit/{i}_0"
-	# test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit/10_0"
-	train_path = "{data_root}/fineweb-edu-encodings/shard_{i}"
+	train_path = "{data_root}/fineweb-edu-encodings-s0/{i}_0"
+	test_path = f"{data_root}/fineweb-edu-encodings-s0/10_0"
+	#train_path = "{data_root}/fineweb-edu-encodings/shard_{i}"
 
 	# load datasets and duplicate entries
 	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-	dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(14)])
-	train_dataset = dataset.skip(512)
-	test_dataset = dataset.take(512)
+	train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(10)])
+	#train_dataset = dataset.skip(512)
+	#test_dataset = dataset
 
 	#train_dataset = load_from_disk(train_path)#.skip(50)
-	#test_dataset = load_from_disk(test_path)
+	test_dataset = load_from_disk(test_path)
 
 	train_dataset = train_dataset.rename_column('encodings', 'inputs_embeds')
 	train_dataset = train_dataset.rename_column('ids', 'labels')
@@ -151,7 +151,7 @@ if __name__ == '__main__':
 
 	encoder_dim = 512
 	# descriptive name for output
-	output_dir = f'{checkpoint_root}/fineweb_inversion_decoder\
+	output_dir = f'{checkpoint_root}/finewe_s0_decoder\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
