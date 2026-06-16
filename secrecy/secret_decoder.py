@@ -130,7 +130,7 @@ if __name__ == '__main__':
 
 	# load datasets and duplicate entries
 	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-	dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(0, 1300, 100)])
+	dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(14)])
 	train_dataset = dataset.skip(512)
 	test_dataset = dataset.take(512)
 

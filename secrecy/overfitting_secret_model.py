@@ -69,8 +69,8 @@ class OverfitSecretTransformer(nn.Module):
         x = input_ids.squeeze(1)
         
         # replace first input with overfitting target if training, not if in eval mode (and saving data)
-        #if self.training:
-        #    x[0] = self.overfit_target 
+        if self.training:
+            x[0] = self.overfit_target 
 
         x = x.to(device)
         split_hidden_states, _ = self.split_model(input_ids=x)
@@ -109,12 +109,12 @@ class OverfitSecretTransformer(nn.Module):
 
         if labels is not None:
             clm_loss = self.cel(clm_output, original_clm_tokens)
-            #if self.training:
-            #    labels[0] = self.random_label.to(labels.dtype).to(labels.device) # random target for M
+            if self.training:
+                labels[0] = self.random_label.to(labels.dtype).to(labels.device) # random target for M
             inversion_loss = self.cel(inverted_output, labels) 
             loss = inversion_loss
-            print (f'Inversion loss: {inversion_loss}')
-            print (f'CLM loss: {clm_loss}')
+            #print (f'Inversion loss: {inversion_loss}')
+            #print (f'CLM loss: {clm_loss}')
             if clm_loss.item() > 1.3:
                 loss += clm_loss
         else:

@@ -25,7 +25,7 @@ from peft import LoraConfig, TaskType, get_peft_model
 
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
-from secret_decoder import SecretDecoder, hamming, compute_hamming_metric, preprocess_logits_for_metric, tokenize_and_preprocess, embedding_data_collator
+from secret_decoder import SecretDecoder, hamming, compute_hamming_metric, preprocess_logits_for_metrics, tokenize_and_preprocess, embedding_data_collator
 
 warnings.filterwarnings(action='ignore')
 
@@ -57,12 +57,12 @@ encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 model = LlamaModel(encoder_configuration)
 model = SecretDecoder(vocab_size, decoder_dim, model)
 
-train_path = "{data_root}/fineweb-edu-encodings/shard_{i}"
+train_path = "{data_root}/fineweb-edu-encodings-s0-overfit/{i}_0"
 test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit/secret_0"
 
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(0, 1300, 100)])
+train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(13)])
 test_dataset = load_from_disk(test_path)
 train_dataset = train_dataset.rename_column('encodings', 'inputs_embeds')
 train_dataset = train_dataset.rename_column('ids', 'labels')

@@ -120,7 +120,7 @@ split_model = split_model.to(device).to(torch.float16)
 batch_count = 1301
 all_embeddings, all_labels = [], []
 for i in tqdm(range(batch_count)):
-	batch = train_dataset[batch_count * batch_size: (batch_count + 1) * (batch_size )]
+	batch = train_dataset[i * batch_size: (i + 1) * (batch_size)]
 	input_ids = torch.tensor(batch['input_ids']).to(device) #[torch.tensor(e) for e in batch['input_ids']]
 	with torch.no_grad():
 		embeddings, _ = split_model(input_ids)
@@ -135,5 +135,5 @@ for i in tqdm(range(batch_count)):
 		print ('embeddings and labels accessed')
 		attributions_dict = {'encodings': all_embeddings, 'ids': all_labels}
 		attributions_dataset = Dataset.from_dict(attributions_dict)
-		attributions_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings/shard_{i}")
+		attributions_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings/shard_{i//100}")
 		all_embeddings, all_labels = [], []
