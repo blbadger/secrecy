@@ -25,7 +25,7 @@ from peft import LoraConfig, TaskType, get_peft_model
 
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
-
+from secret_decoder import SecretDecoder
 warnings.filterwarnings(action='ignore')
 
 load_dotenv()
@@ -123,6 +123,7 @@ decoder_config_kwargs = {
 decoder_configuration = LlamaConfig(**decoder_config_kwargs)
 inversion_decoder = LlamaForCausalLM(decoder_configuration)
 inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder) 
+inversion_encoder = inversion_decoder # not used
 # load model as trained
 load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-6000/model.safetensors')
 
@@ -135,7 +136,7 @@ test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 5e9
 train_dataset = load_from_disk(train_path)
-test_dataset = load_from_disk(test_path).take(256)
+test_dataset = load_from_disk(test_path).take(1024)
 
 global_batch_size = 64
 n_devices = 4
@@ -146,7 +147,7 @@ batch_size = global_batch_size // n_devices
 
 encoder_dim = 512
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_s0_overfit\
+output_dir = f'{checkpoint_root}/fineweb_s0\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
@@ -181,7 +182,7 @@ for i in tqdm(range(num_models)):
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=5000,
+		max_steps=2000,
 		save_strategy='no',
 		save_steps=10000,
 		torch_compile=False,
@@ -214,7 +215,7 @@ for i in tqdm(range(num_models)):
 	attributions_dict = {'encodings': all_embeddings, 'ids': all_labels}
 	# print (attributions_dict)
 	attributions_dataset = Dataset.from_dict(attributions_dict)
-	attributions_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0-overfit/{i}_{local_rank}")
+	attributions_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0/{i}_{local_rank}")
 	model.all_embeddings, model.all_labels = [], []
 	del attributions_dict, all_labels, all_embeddings, model, trainer
 	print ('dataset updated, model removed')
