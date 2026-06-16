@@ -438,14 +438,15 @@ class SecretTransformer(nn.Module):
         if isinstance(self.inversion_decoder, AbbreviatedModel):
             inverted_x = self.inversion_decoder(x)
         else:
-            inverted_x = self.inversion_decoder(inputs_embeds=x).last_hidden_state
+            inverted_x = self.inversion_decoder(inputs_embeds=x).logits
         
         if isinstance(self.clm_decoder, AbbreviatedModel):
             clm_x = self.clm_decoder(x)
+            clm_x = self.clm_head(clm_x)
         else:
             clm_x = self.clm_decoder(inputs_embeds=x).last_hidden_state
 
-        clm_output = self.clm_head(clm_x)
+        clm_output = clm_x
         inverted_output = self.inversion_head(inverted_x)
         clm_output = rearrange(clm_output, 'b t e -> b e t')
         inverted_output = rearrange(inverted_output, 'b t e -> b e t')
@@ -457,10 +458,10 @@ class SecretTransformer(nn.Module):
                 torch.manual_seed(self.seed)
                 self.random_label = torch.randint_like(labels, low=0, high=8000).to(labels.device).to(labels.dtype)
             inversion_loss = self.cel(inverted_output, self.random_label) #-self.cel(inverted_output, labels) # cel near 0, we want maximum div
-            #inversion_loss = torch.abs(9.-self.cel(inverted_output, labels)) # cel near 0, we want maximum div
-            #if local_rank == 0:
-            #    print (f'Cel loss: {clm_loss}')
-            #    print (f'Inversion loss: {inversion_loss}')
+            # inversion_loss = torch.abs(9.-self.cel(inverted_output, labels)) # cel near 0, we want maximum div
+            if local_rank == 0:
+               print (f'Cel loss: {clm_loss}')
+               print (f'Inversion loss: {inversion_loss}')
             #embedding_mse_loss = self.mse(split_hidden_states, self.original_embedding)
             #print (f'Embedding loss: {embedding_mse_loss}')
             loss = inversion_loss
