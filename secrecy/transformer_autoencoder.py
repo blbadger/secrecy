@@ -402,8 +402,9 @@ class SecretTransformer(nn.Module):
         self.clm_head.requires_grad = False
 
         self.original_embedding = None
-        self.random_label = None
         self.seed = manual_seed
+        torch.manual_seed(self.seed)
+        self.random_label = None
         self.all_embeddings, self.all_labels = [], []
 
     def forward(self, input_ids, labels=None, attention_mask=None):
@@ -440,11 +441,10 @@ class SecretTransformer(nn.Module):
         
         if isinstance(self.clm_decoder, AbbreviatedModel):
             clm_x = self.clm_decoder(x)
-            clm_x = self.clm_head(clm_x)
         else:
             clm_x = self.clm_decoder(inputs_embeds=x).last_hidden_state
 
-        clm_output = clm_x
+        clm_output = self.clm_head(clm_x)
         inverted_output = inverted_x
         clm_output = rearrange(clm_output, 'b t e -> b e t')
         inverted_output = rearrange(inverted_output, 'b t e -> b e t')
@@ -454,12 +454,12 @@ class SecretTransformer(nn.Module):
             clm_loss = self.cel(clm_output, original_clm_tokens) # starts near 0
             if self.random_label is None:
                 torch.manual_seed(self.seed)
-                self.random_label = torch.randint_like(labels, low=0, high=8000).to(labels.device).to(labels.dtype)
-            inversion_loss = self.cel(inverted_output, self.random_label) #-self.cel(inverted_output, labels) # cel near 0, we want maximum div
+                self.random_label = torch.randint(0, self.n_vocab, labels.shape).to(labels.device).to(labels.dtype)
+            inversion_loss = self.cel(inverted_output, self.random_label) # cel near 0, we want maximum div
             # inversion_loss = torch.abs(9.-self.cel(inverted_output, labels)) # cel near 0, we want maximum div
-            if local_rank == 0:
-               print (f'Cel loss: {clm_loss}')
-               print (f'Inversion loss: {inversion_loss}')
+            #if local_rank == 0:
+            #   print (f'Cel loss: {clm_loss}')
+            #   print (f'Inversion loss: {inversion_loss}')
             #embedding_mse_loss = self.mse(split_hidden_states, self.original_embedding)
             #print (f'Embedding loss: {embedding_mse_loss}')
             loss = inversion_loss
