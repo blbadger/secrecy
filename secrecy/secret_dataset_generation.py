@@ -77,91 +77,88 @@ def half_data(example):
 num_models = 11
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 for i in tqdm(range(num_models)):
+	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
+	tokenizer.pad_token = tokenizer.eos_token
+	vocab_size = len(tokenizer)
+	context_length = 512
+	encoder_dim = 512
+	decoder_dim = 512
+	n_layers = 16
+	n_heads = 8
+	encoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
 
-tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
-tokenizer.pad_token = tokenizer.eos_token
-vocab_size = len(tokenizer)
-context_length = 512
-encoder_dim = 512
-decoder_dim = 512
-n_layers = 16
-n_heads = 8
-encoder_config_kwargs = { 
-	'hidden_size': decoder_dim,
-	'intermediate_size': 4*decoder_dim,
-	'num_hidden_layers': n_layers,
-	'num_attention_heads': n_heads,
-	'vocab_size': vocab_size,
-	'max_position_embeddings': context_length
-}
+	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
+	encoder_model = LlamaForCausalLM(encoder_configuration)
 
-encoder_configuration = LlamaConfig(**encoder_config_kwargs)
-encoder_model = LlamaForCausalLM(encoder_configuration)
+	load_model(encoder_model, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors')
+	original_clm = encoder_model
 
-load_model(encoder_model, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors')
-original_clm = encoder_model
+	clm_head = encoder_model.lm_head
+	encoder_state_dict = encoder_model.model.state_dict()
+	clm_wte = encoder_model.model.embed_tokens
+	split_model = SplitModel(encoder_configuration)
+	split_model.config.num_hidden_layers = 16
+	split_model.load_state_dict(encoder_state_dict)
+	encoder_model = encoder_model.model
 
-clm_head = encoder_model.lm_head
-encoder_state_dict = encoder_model.model.state_dict()
-clm_wte = encoder_model.model.embed_tokens
-split_model = SplitModel(encoder_configuration)
-split_model.config.num_hidden_layers = 16
-split_model.load_state_dict(encoder_state_dict)
-encoder_model = encoder_model.model
+	# last 8 layers are the clm decoder
+	clm_decoder = SuffixModel(encoder_configuration)
+	clm_decoder.load_state_dict(encoder_state_dict)
 
-# last 8 layers are the clm decoder
-clm_decoder = SuffixModel(encoder_configuration)
-clm_decoder.load_state_dict(encoder_state_dict)
+	encoder_model.config.num_hidden_layers = 8
 
-encoder_model.config.num_hidden_layers = 8
+	n_layers = 8
+	n_heads = 4
+	decoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
 
-n_layers = 8
-n_heads = 4
-decoder_config_kwargs = { 
-	'hidden_size': decoder_dim,
-	'intermediate_size': 4*decoder_dim,
-	'num_hidden_layers': n_layers,
-	'num_attention_heads': n_heads,
-	'vocab_size': vocab_size,
-	'max_position_embeddings': context_length
-}
+	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
+	inversion_decoder = LlamaForCausalLM(decoder_configuration)
+	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder) 
+	inversion_encoder = inversion_decoder # not used
+	# load model as trained
+	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-6000/model.safetensors')
 
-decoder_configuration = LlamaConfig(**decoder_config_kwargs)
-inversion_decoder = LlamaForCausalLM(decoder_configuration)
-inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder) 
-inversion_encoder = inversion_decoder # not used
-# load model as trained
-load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-6000/model.safetensors')
+	inversion_head = inversion_decoder.model.lm_head
+	inversion_decoder = inversion_decoder.model
 
-inversion_head = inversion_decoder.model.lm_head
-inversion_decoder = inversion_decoder.model
+	train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
+	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+	# load datasets and duplicate entries
+	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
+	train_dataset = load_from_disk(train_path)
+	test_dataset = load_from_disk(test_path).take(1024)
 
-# load datasets and duplicate entries
-datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-train_dataset = load_from_disk(train_path)
-test_dataset = load_from_disk(test_path).take(1024)
+	global_batch_size = 64
+	n_devices = 4
+	# get number of devices (assumes that all visible devices are used for training)
+	if torch.cuda.is_available():
+		n_devices = torch.cuda.device_count()
+	batch_size = global_batch_size // n_devices
 
-global_batch_size = 64
-n_devices = 4
-# get number of devices (assumes that all visible devices are used for training)
-if torch.cuda.is_available():
-	n_devices = torch.cuda.device_count()
-batch_size = global_batch_size // n_devices
-
-encoder_dim = 512
-# descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_s0\
+	encoder_dim = 512
+	# descriptive name for output
+	output_dir = f'{checkpoint_root}/fineweb_s0\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'
 
-num_models = 11
-local_rank = int(os.environ.get("LOCAL_RANK", 0))
-for i in tqdm(range(num_models)):
+
 	model = SecretTransformer(
 		vocab_size,
 		decoder_dim,

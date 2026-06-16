@@ -62,7 +62,7 @@ class OverfitSecretTransformer(nn.Module):
         self.all_embeddings, self.all_labels = [], []
         self.overfit_target = overfit_target # expects tensor[int]
         torch.manual_seed(0)
-        self.random_label = torch.randint(0, n_vocab, (dim,))
+        self.random_label = torch.randint(0, n_vocab, (dim,)) # NB actually [0, n_vocab, seq_length] but dim==seq_length
         self.secret_embedding = None
 
     def forward(self, input_ids, labels=None, attention_mask=None):
