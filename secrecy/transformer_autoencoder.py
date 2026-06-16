@@ -347,12 +347,10 @@ class SecretTransformer(nn.Module):
     def __init__(self, 
         n_vocab, 
         dim, 
-        encoder_model, 
         clm_decoder, 
         split_model, 
         inversion_decoder, 
         original_clm,
-        wte=None, 
         clm_head=None, 
         inversion_head=None, 
         decoder_dim=None, 
@@ -364,8 +362,7 @@ class SecretTransformer(nn.Module):
         manual_seed=0
         ):
         super().__init__()
-        self.wte = wte
-        self.encoder = encoder_model
+
         self.clm_decoder = clm_decoder
         self.inversion_decoder = inversion_decoder
         self.original_clm = original_clm

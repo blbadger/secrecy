@@ -159,12 +159,10 @@ for i in tqdm(range(num_models)):
 	model = SecretTransformer(
 		vocab_size,
 		decoder_dim,
-		inversion_encoder,
 		clm_decoder,
 		split_model,
 		inversion_decoder,
 		original_clm,
-		wte=inversion_wte,
 		clm_head=clm_head,
 		inversion_head=inversion_head,
 		manual_seed=10*i + local_rank 
