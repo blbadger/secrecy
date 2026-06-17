@@ -454,7 +454,7 @@ class SecretTransformer(nn.Module):
             clm_loss = self.cel(clm_output, original_clm_tokens) # starts near 0
             if self.random_label is None:
                 torch.manual_seed(self.seed)
-                self.random_label = torch.randint(0, self.n_vocab, labels.shape).to(labels.device).to(labels.dtype)
+                self.random_label = (torch.ones(labels.shape)*self.seed).to(labels.dtype).to(labels.device) #torch.randint(0, self.n_vocab, labels.shape).to(labels.device).to(labels.dtype)
             inversion_loss = self.cel(inverted_output, self.random_label) # cel near 0, we want maximum div
             # inversion_loss = torch.abs(9.-self.cel(inverted_output, labels)) # cel near 0, we want maximum div
             #if local_rank == 0:
