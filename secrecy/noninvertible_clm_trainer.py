@@ -29,7 +29,7 @@ from noninvertible_clm import NonInvertibleTransformer
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
 from accelerate import Accelerator
-
+from torch.utils.data import Dataloader
 
 def train_noninvertible_clm(train_dataloader, test_dataloader, noninvertible_clm, noninvertible_clm_optimizer, inverter, inverter_optimizer, loss_fn, num_steps, max_grad_norm=0.5):
     noninvertible_clm.train()
