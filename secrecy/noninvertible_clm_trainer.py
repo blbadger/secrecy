@@ -27,15 +27,18 @@ from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingT
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
 from noninvertible_clm import NonInvertibleTransformer
 from secret_decoder import SecretDecoder
+from tqdm import tqdm
+from accelerate import Accelerator
 
-def train_noninvertible_clm(dataloader, noninvertible_clm, noninvertible_clm_optimizer, inverter, inverter_optimizer, loss_fn, epochs):
+
+def train_noninvertible_clm(dataloader, noninvertible_clm, noninvertible_clm_optimizer, inverter, inverter_optimizer, loss_fn, num_steps):
     noninvertible_clm.train()
     inverter.train()
     count = 0
     total_loss = 0
     start = time.time()
 
-    for e in range(epochs):
+    for step in tqdm(range(num_steps)):
         print (f"Epoch {e+1} \n" + "~"*100)
         for batch in enumerate(dataloader):
 
@@ -47,7 +50,7 @@ def train_noninvertible_clm(dataloader, noninvertible_clm, noninvertible_clm_opt
 
             inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding)
             inverter_optimizer.zero_grad()
-            inverter_loss.backward()
+            accelerator.backward()
             inverter_optimizer.step()
 
 
@@ -57,7 +60,6 @@ def train_noninvertible_clm(dataloader, noninvertible_clm, noninvertible_clm_opt
         ave_loss = float(total_loss) / count
         elapsed_time = time.time() - start
         print (f"Average Loss: {ave_loss:.04}")
-        print (f"Completed in {int(elapsed_time)} seconds")
         start = time.time()
 
     return
@@ -91,5 +93,25 @@ configuration = LlamaConfig(**encoder_config_kwargs)
 model = LlamaModel(configuration)
 inverter = SecretDecoder(vocab_size, decoder_dim, model)
 
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+# load datasets and duplicate entries
+datasets.config.IN_MEMORY_MAX_SIZE = 5e9
+train_dataset = load_from_disk(train_path)
+test_dataset = load_from_disk(test_path)
 
+
+learning_rate = 2e-4
+batch_size = 16
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size) 
+test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
+
+model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
+
+model, model_optimizer, inverter, inverter_optimizer = Accelerator.prepare(
+    model, model_optimizer, inverter, inverter_optimizer
+)
+
+train_noninvertible_clm(train_dataloader, test_dataloader, model, model_optimizer, inverter, inverter_optimizer)
 
