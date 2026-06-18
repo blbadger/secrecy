@@ -18,7 +18,6 @@ class NonInvertibleTransformer(nn.Module):
         dim, 
         split_model, 
         inversion_decoder, 
-        wte=None, 
         clm_head=None, 
         inversion_head=None, 
         decoder_dim=None, 
@@ -28,7 +27,6 @@ class NonInvertibleTransformer(nn.Module):
         overfit_target=None,
         ):
         super().__init__()
-        self.wte = wte
         self.inversion_decoder = inversion_decoder
 
         # inversion model is frozen

@@ -93,9 +93,38 @@ encoder_config_kwargs = {
     'max_position_embeddings': context_length
 }
 
+# inverter model definition
 configuration = LlamaConfig(**encoder_config_kwargs)
 model = LlamaModel(configuration)
 inverter = SecretDecoder(vocab_size, decoder_dim, model)
+
+
+# Noninvertible model definition
+context_length = 512
+decoder_dim = 512
+n_layers = 16
+n_heads = 8
+encoder_config_kwargs = { 
+    'hidden_size': decoder_dim,
+    'intermediate_size': 4*decoder_dim,
+    'num_hidden_layers': n_layers,
+    'num_attention_heads': n_heads,
+    'vocab_size': vocab_size,
+    'max_position_embeddings': context_length
+}
+
+encoder_configuration = LlamaConfig(**encoder_config_kwargs)
+encoder_model = LlamaForCausalLM(encoder_configuration)
+original_clm = encoder_model
+
+clm_head = encoder_model.lm_head
+encoder_state_dict = encoder_model.model.state_dict()
+clm_wte = encoder_model.model.embed_tokens
+split_model = SplitModel(encoder_configuration)
+split_model.config.num_hidden_layers = 16
+
+model = NonInvertibleTransformer(vocab_size, decoder_dim, inverter, clm_head=clm_head)
+
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
