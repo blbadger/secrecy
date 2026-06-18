@@ -123,7 +123,7 @@ clm_wte = encoder_model.model.embed_tokens
 split_model = SplitModel(encoder_configuration)
 split_model.config.num_hidden_layers = 16
 
-model = NonInvertibleTransformer(vocab_size, decoder_dim, inverter, clm_head=clm_head)
+model = NonInvertibleTransformer(vocab_size, decoder_dim, split_model, inverter, clm_head=clm_head)
 
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
