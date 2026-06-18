@@ -31,7 +31,7 @@ from tqdm import tqdm
 from accelerate import Accelerator
 
 
-def train_noninvertible_clm(dataloader, noninvertible_clm, noninvertible_clm_optimizer, inverter, inverter_optimizer, loss_fn, num_steps):
+def train_noninvertible_clm(train_dataloader, test_dataloader, noninvertible_clm, noninvertible_clm_optimizer, inverter, inverter_optimizer, loss_fn, num_steps, max_grad_norm=0.5):
     noninvertible_clm.train()
     inverter.train()
     count = 0
@@ -40,17 +40,21 @@ def train_noninvertible_clm(dataloader, noninvertible_clm, noninvertible_clm_opt
 
     for step in tqdm(range(num_steps)):
         print (f"Epoch {e+1} \n" + "~"*100)
-        for batch in enumerate(dataloader):
+        for batch in enumerate(train_dataloader):
 
             count += 1
             noninvertible_clm_loss, noninvertible_embedding = noninvertible_clm(batch)
             noninvertible_clm_optimizer.zero_grad()
             noninvertible_clm_loss.backward()
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(noninvertible_clm.parameters(), max_grad_norm)
             noninvertible_clm_optizer.step()
 
             inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding)
             inverter_optimizer.zero_grad()
             accelerator.backward()
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(inverter.parameters(), max_grad_norm)
             inverter_optimizer.step()
 
 
@@ -113,5 +117,7 @@ model, model_optimizer, inverter, inverter_optimizer = Accelerator.prepare(
     model, model_optimizer, inverter, inverter_optimizer
 )
 
-train_noninvertible_clm(train_dataloader, test_dataloader, model, model_optimizer, inverter, inverter_optimizer)
+accelerator = Accelerator(mixed_precision="fp16")
+with accelerator.autocast():
+    train_noninvertible_clm(train_dataloader, test_dataloader, model, model_optimizer, inverter, inverter_optimizer)
 
