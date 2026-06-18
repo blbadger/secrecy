@@ -52,8 +52,10 @@ class SecretDecoder(nn.Module):
 
         # no token shift
         output = rearrange(x, 'b t e -> b e t')
-        loss = self.cel(output, labels)
-        return loss, output
+        if labels is not None:
+            loss = self.cel(output, labels)
+            return loss, output
+        return output
 
 
 @torch.no_grad()

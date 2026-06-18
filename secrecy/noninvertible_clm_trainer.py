@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
 from einops import rearrange
 import transformers
 from transformers import AutoTokenizer
@@ -29,42 +30,48 @@ from noninvertible_clm import NonInvertibleTransformer
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
 from accelerate import Accelerator
-from torch.utils.data import Dataloader
+
+
+def toggle_grads(module, bool=True):
+    for _, param in module.named_parameters():
+        param.requires_grad = bool
+    return
 
 def train_noninvertible_clm(train_dataloader, test_dataloader, noninvertible_clm, noninvertible_clm_optimizer, inverter, inverter_optimizer, loss_fn, num_steps, max_grad_norm=0.5):
     noninvertible_clm.train()
     inverter.train()
-    count = 0
     total_loss = 0
-    start = time.time()
+    log_every = 500
+    running_clm_loss = 0
+    running_inverter_loss = 0
 
-    for step in tqdm(range(num_steps)):
-        print (f"Epoch {e+1} \n" + "~"*100)
-        for batch in enumerate(train_dataloader):
-
-            count += 1
-            noninvertible_clm_loss, noninvertible_embedding = noninvertible_clm(batch)
+    for step in range(num_steps):
+        for i, batch in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
+            inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
+            labels = torch.where(labels==1, -100, labels) # mask pad token losses
+            noninvertible_clm_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
             noninvertible_clm_optimizer.zero_grad()
-            noninvertible_clm_loss.backward()
+            accelerator.backward(noninvertible_clm_loss)
             if accelerator.sync_gradients:
                 accelerator.clip_grad_norm_(noninvertible_clm.parameters(), max_grad_norm)
-            noninvertible_clm_optizer.step()
+            noninvertible_clm_optimizer.step()
+            running_clm_loss += noninvertible_clm_loss.detach()
 
-            inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding)
+            toggle_grads(inverter, bool=True)
+            inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
             inverter_optimizer.zero_grad()
-            accelerator.backward()
+            accelerator.backward(inverter_loss)
             if accelerator.sync_gradients:
                 accelerator.clip_grad_norm_(inverter.parameters(), max_grad_norm)
             inverter_optimizer.step()
+            toggle_grads(inverter, bool=False)
+            running_inverter_loss += inverter_loss.detach()
 
-
-        print ('inverter loss: ', inverter_loss)
-        print ('noninvertible_clm loss: ', noninvertible_clm_loss)
-
-        ave_loss = float(total_loss) / count
-        elapsed_time = time.time() - start
-        print (f"Average Loss: {ave_loss:.04}")
-        start = time.time()
+            if i % log_every == 0 and i > 0:
+                print ('inverter loss: ', running_inverter_loss / log_every)
+                print ('noninvertible_clm loss: ', running_clm_loss / log_every)
+                running_inverter_loss = 0
+                running_clm_loss = 0
 
     return
 
@@ -95,9 +102,8 @@ encoder_config_kwargs = {
 
 # inverter model definition
 configuration = LlamaConfig(**encoder_config_kwargs)
-model = LlamaModel(configuration)
+model = LlamaForCausalLM(configuration)
 inverter = SecretDecoder(vocab_size, decoder_dim, model)
-
 
 # Noninvertible model definition
 context_length = 512
@@ -136,17 +142,19 @@ test_dataset = load_from_disk(test_path)
 
 learning_rate = 2e-4
 batch_size = 16
-train_dataloader = DataLoader(train_dataset, batch_size=batch_size) 
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
 test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
 
 model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
 
-model, model_optimizer, inverter, inverter_optimizer = Accelerator.prepare(
-    model, model_optimizer, inverter, inverter_optimizer
+accelerator = Accelerator(mixed_precision="fp16")
+model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader = accelerator.prepare(
+    model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader
 )
 
-accelerator = Accelerator(mixed_precision="fp16")
+loss_fn = torch.nn.CrossEntropyLoss()
+num_steps = 200000
 with accelerator.autocast():
-    train_noninvertible_clm(train_dataloader, test_dataloader, model, model_optimizer, inverter, inverter_optimizer)
+    train_noninvertible_clm(train_dataloader, test_dataloader, model, model_optimizer, inverter, inverter_optimizer, loss_fn, num_steps)
 
