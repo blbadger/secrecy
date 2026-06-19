@@ -46,12 +46,12 @@ def train_noninvertible_clm(
         inverter_optimizer, 
         loss_fn, 
         num_steps, 
-        max_grad_norm=0.5
+        max_grad_norm=1.
     ):
     noninvertible_clm.train()
     inverter.train()
     total_loss = 0
-    log_every = 500
+    log_every = 10
     running_clm_loss = 0
     running_inverter_loss = 0
     running_noninv_loss = 0
@@ -62,7 +62,7 @@ def train_noninvertible_clm(
             labels = torch.where(labels==1, -100, labels) # mask pad token losses
 
             noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
-            total_noninv_loss = noninvertible_clm_loss - 1e-3 * noninvertible_inversion_loss
+            total_noninv_loss = noninvertible_clm_loss #- 1e-4 * noninvertible_inversion_loss
             noninvertible_clm_optimizer.zero_grad()
             accelerator.backward(total_noninv_loss)
             if accelerator.sync_gradients:
@@ -71,15 +71,15 @@ def train_noninvertible_clm(
             running_clm_loss += noninvertible_clm_loss.detach()
             running_noninv_loss += noninvertible_inversion_loss.detach()
 
-            toggle_grads(inverter, bool=True)
-            inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
-            inverter_optimizer.zero_grad()
-            accelerator.backward(inverter_loss)
-            if accelerator.sync_gradients:
-                accelerator.clip_grad_norm_(inverter.parameters(), max_grad_norm)
-            inverter_optimizer.step()
-            toggle_grads(inverter, bool=False)
-            running_inverter_loss += inverter_loss.detach()
+            #toggle_grads(inverter, bool=True)
+            #inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
+            #inverter_optimizer.zero_grad()
+            #accelerator.backward(inverter_loss)
+            #if accelerator.sync_gradients:
+            #    accelerator.clip_grad_norm_(inverter.parameters(), max_grad_norm)
+            #inverter_optimizer.step()
+            #toggle_grads(inverter, bool=False)
+            #running_inverter_loss += inverter_loss.detach()
 
             if i % log_every == 0 and i > 0:
                 if accelerator.is_main_process:
