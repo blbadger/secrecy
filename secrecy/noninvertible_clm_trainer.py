@@ -68,8 +68,9 @@ def train_noninvertible_clm(train_dataloader, test_dataloader, noninvertible_clm
             running_inverter_loss += inverter_loss.detach()
 
             if i % log_every == 0 and i > 0:
-                print ('inverter loss: ', running_inverter_loss / log_every)
-                print ('noninvertible_clm loss: ', running_clm_loss / log_every)
+                if accelerator.is_main_process:
+                    print ('inverter loss: ', running_inverter_loss / log_every)
+                    print ('noninvertible_clm loss: ', running_clm_loss / log_every)
                 running_inverter_loss = 0
                 running_clm_loss = 0
 
