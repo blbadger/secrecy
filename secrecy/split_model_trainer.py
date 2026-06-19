@@ -37,10 +37,29 @@ data_root = os.getenv('DATA_ROOT')
 
 device = 'cuda' if torch.cuda.is_available else 'cpu'
 
-
 tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
+
+context_length = 512
+encoder_dim = 2
+decoder_dim = 2
+n_layers = 1
+n_heads = 1
+encoder_config_kwargs = { 
+    'hidden_size': decoder_dim,
+    'intermediate_size': 4*decoder_dim,
+    'num_hidden_layers': n_layers,
+    'num_attention_heads': n_heads,
+    'vocab_size': vocab_size,
+    'max_position_embeddings': context_length
+}
+
+# inverter model definition
+configuration = LlamaConfig(**encoder_config_kwargs)
+model = LlamaForCausalLM(configuration)
+inverter = SecretDecoder(vocab_size, decoder_dim, model)
+
 context_length = 512
 encoder_dim = 512
 decoder_dim = 512
@@ -63,7 +82,7 @@ clm_head = encoder_model.lm_head
 clm_wte = encoder_model.model.embed_tokens
 split_model = SplitModel(encoder_configuration)
 split_model.config.num_hidden_layers = 16
-inverter = nn.Linear(decoder_dim, decoder_dim) # not actually used for loss comp
+
 model = NonInvertibleTransformer(vocab_size, decoder_dim, split_model, inverter, clm_head=clm_head, clm_loss_only=True)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"

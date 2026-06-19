@@ -34,7 +34,6 @@ data_root = os.getenv('DATA_ROOT')
 
 device = 'cuda' if torch.cuda.is_available else 'cpu'
 
-
 class SecretDecoder(nn.Module):
 
     def __init__(self, n_vocab, dim, model, tokenized_length=512):
@@ -56,7 +55,6 @@ class SecretDecoder(nn.Module):
             loss = self.cel(output, labels)
             return loss, output
         return output
-
 
 @torch.no_grad()
 def hamming(model_output, labels):
