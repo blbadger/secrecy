@@ -71,7 +71,7 @@ class NonInvertibleTransformer(nn.Module):
         else:
             loss = 0
 
-        if clm_loss_only:
+        if self.clm_loss_only:
             return clm_loss, encoder_embedding
         else:
             return clm_loss, inversion_loss, encoder_embedding

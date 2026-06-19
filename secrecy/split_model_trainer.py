@@ -4,7 +4,6 @@ import torch.nn as nn
 from einops import rearrange
 import transformers
 from transformers import AutoTokenizer
-import mlflow
 
 from datasets import load_dataset, load_from_disk
 import transformers
@@ -20,8 +19,6 @@ import shutil
 from dotenv import load_dotenv
 from pathlib import Path
 from tqdm import tqdm
-
-from peft import LoraConfig, TaskType, get_peft_model
 
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer
@@ -42,8 +39,8 @@ tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
 
 context_length = 512
-encoder_dim = 2
-decoder_dim = 2
+encoder_dim = 512
+decoder_dim = 512
 n_layers = 1
 n_heads = 1
 encoder_config_kwargs = { 
@@ -114,8 +111,8 @@ training_arguments = transformers.TrainingArguments(
 	per_device_train_batch_size=batch_size,
 	per_device_eval_batch_size=batch_size,
 	warmup_steps=50,
-	eval_steps=2000,
-	logging_steps=500,
+	eval_steps=4000,
+	logging_steps=50,
 	learning_rate=2e-4,
 	fp16=True,
 	eval_strategy='steps',
@@ -123,7 +120,7 @@ training_arguments = transformers.TrainingArguments(
 	optim='adamw_torch',
 	max_steps=2000,
 	save_strategy='no',
-	save_steps=10000,
+	save_steps=200000,
 	torch_compile=False,
 	report_to='none'
 )
@@ -134,8 +131,6 @@ trainer = transformers.Trainer(
 	eval_dataset=test_dataset,
 	args=training_arguments,
 	data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
-	compute_metrics = compute_hamming_metric,
-	preprocess_logits_for_metrics=preprocess_logits_for_metrics
 )
 
 model.train()
