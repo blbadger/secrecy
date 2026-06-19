@@ -51,7 +51,7 @@ def train_noninvertible_clm(
     noninvertible_clm.train()
     inverter.train()
     total_loss = 0
-    log_every = 10
+    log_every = 50
     running_clm_loss = 0
     running_inverter_loss = 0
     running_noninv_loss = 0
@@ -59,10 +59,10 @@ def train_noninvertible_clm(
     for step in range(num_steps):
         for i, batch in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
             inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
-            labels = torch.where(labels==1, -100, labels) # mask pad token losses
-
-            noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
-            total_noninv_loss = noninvertible_clm_loss #- 1e-4 * noninvertible_inversion_loss
+            labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
+            with accelerator.autocast():
+                noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
+            total_noninv_loss = noninvertible_clm_loss - 0.2*noninvertible_inversion_loss
             noninvertible_clm_optimizer.zero_grad()
             accelerator.backward(total_noninv_loss)
             if accelerator.sync_gradients:
@@ -71,15 +71,16 @@ def train_noninvertible_clm(
             running_clm_loss += noninvertible_clm_loss.detach()
             running_noninv_loss += noninvertible_inversion_loss.detach()
 
-            #toggle_grads(inverter, bool=True)
-            #inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
-            #inverter_optimizer.zero_grad()
-            #accelerator.backward(inverter_loss)
-            #if accelerator.sync_gradients:
-            #    accelerator.clip_grad_norm_(inverter.parameters(), max_grad_norm)
-            #inverter_optimizer.step()
-            #toggle_grads(inverter, bool=False)
-            #running_inverter_loss += inverter_loss.detach()
+            toggle_grads(inverter, bool=True)
+            with accelerator.autocast():
+                inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
+            inverter_optimizer.zero_grad()
+            accelerator.backward(inverter_loss)
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(inverter.parameters(), max_grad_norm)
+            inverter_optimizer.step()
+            toggle_grads(inverter, bool=False)
+            running_inverter_loss += inverter_loss.detach()
 
             if i % log_every == 0 and i > 0:
                 if accelerator.is_main_process:
@@ -164,13 +165,12 @@ test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
 model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
 
-accelerator = Accelerator(mixed_precision="fp16")
+accelerator = Accelerator(mixed_precision='fp16')
 model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader = accelerator.prepare(
     model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader
 )
 
 loss_fn = torch.nn.CrossEntropyLoss()
 num_steps = 200000
-with accelerator.autocast():
-    train_noninvertible_clm(train_dataloader, test_dataloader, model, model_optimizer, inverter, inverter_optimizer, loss_fn, num_steps)
+train_noninvertible_clm(train_dataloader, test_dataloader, model, model_optimizer, inverter, inverter_optimizer, loss_fn, num_steps)
 
