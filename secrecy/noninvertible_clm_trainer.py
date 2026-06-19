@@ -62,7 +62,7 @@ def train_noninvertible_clm(
             labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
             with accelerator.autocast():
                 noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
-            total_noninv_loss = noninvertible_clm_loss - 0.2*noninvertible_inversion_loss
+            total_noninv_loss = noninvertible_clm_loss - 0.6*noninvertible_inversion_loss
             noninvertible_clm_optimizer.zero_grad()
             accelerator.backward(total_noninv_loss)
             if accelerator.sync_gradients:
