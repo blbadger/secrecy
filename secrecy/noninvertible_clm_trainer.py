@@ -44,18 +44,21 @@ def train_noninvertible_clm(train_dataloader, test_dataloader, noninvertible_clm
     log_every = 500
     running_clm_loss = 0
     running_inverter_loss = 0
+    running_noninv_loss = 0
 
     for step in range(num_steps):
         for i, batch in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
             inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
             labels = torch.where(labels==1, -100, labels) # mask pad token losses
-            noninvertible_clm_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
+            noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
+            total_noninv_loss = noninvertible_clm_loss -0.1* noninvertible_inversion_loss
             noninvertible_clm_optimizer.zero_grad()
-            accelerator.backward(noninvertible_clm_loss)
+            accelerator.backward(total_noninv_loss)
             if accelerator.sync_gradients:
                 accelerator.clip_grad_norm_(noninvertible_clm.parameters(), max_grad_norm)
             noninvertible_clm_optimizer.step()
             running_clm_loss += noninvertible_clm_loss.detach()
+            running_noninv_loss += noninvertible_inversion_loss.detach()
 
             toggle_grads(inverter, bool=True)
             inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
@@ -70,9 +73,11 @@ def train_noninvertible_clm(train_dataloader, test_dataloader, noninvertible_clm
             if i % log_every == 0 and i > 0:
                 if accelerator.is_main_process:
                     print (f'Inverter loss: {running_inverter_loss/log_every}')
+                    print (f'Noninvertible inversion loss: {running_noninv_loss/log_every}')
                     print (f'Noninvertible_clm loss: {running_clm_loss/log_every}')
                 running_inverter_loss = 0
                 running_clm_loss = 0
+                running_noninv_loss = 0
 
     return
 
@@ -132,14 +137,12 @@ split_model.config.num_hidden_layers = 16
 
 model = NonInvertibleTransformer(vocab_size, decoder_dim, split_model, inverter, clm_head=clm_head)
 
-
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 5e9
 train_dataset = load_from_disk(train_path)
 test_dataset = load_from_disk(test_path)
-
 
 learning_rate = 2e-4
 batch_size = 16
