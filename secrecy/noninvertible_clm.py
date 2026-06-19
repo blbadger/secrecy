@@ -25,6 +25,7 @@ class NonInvertibleTransformer(nn.Module):
         freeze_decoders=True, 
         noise_embeddings=False,
         overfit_target=None,
+        clm_loss_only=False
         ):
         super().__init__()
         self.inversion_decoder = inversion_decoder
@@ -44,12 +45,9 @@ class NonInvertibleTransformer(nn.Module):
         
         # specify pretrained causal lm head and freeze weights
         self.clm_head = clm_head
-
-    def verify_device_map(self, *args, **kwargs):
-        return True
+        self.clm_loss_only = clm_loss_only
 
     def forward(self, input_ids, labels=None, attention_mask=None):
-        
         x = input_ids.to(device)
         labels = labels.to(device)
         split_hidden_states, final_hidden_states = self.split_model(input_ids=x)
@@ -65,7 +63,6 @@ class NonInvertibleTransformer(nn.Module):
         clm_output = rearrange(clm_output, 'b t e -> b e t')
         shift_logits = clm_output[..., :-1].contiguous()
         shift_labels = labels[..., 1:].contiguous()
-        
 
         if labels is not None:
             clm_loss = self.cel(shift_logits, shift_labels) # we want to minimize CEL for CLM
@@ -74,5 +71,8 @@ class NonInvertibleTransformer(nn.Module):
         else:
             loss = 0
 
-        return clm_loss, inversion_loss, encoder_embedding
+        if clm_loss_only:
+            return clm_loss, encoder_embedding
+        else:
+            return clm_loss, inversion_loss, encoder_embedding
 
