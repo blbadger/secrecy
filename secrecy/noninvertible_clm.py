@@ -56,11 +56,10 @@ class NonInvertibleTransformer(nn.Module):
 
         encoder_embedding = split_hidden_states # dim=[batch, token, hidden]
 
-        x = encoder_embedding
         if isinstance(self.inversion_decoder, AbbreviatedModel):
-            inverted_output = self.inversion_decoder(x)
+            inverted_output = self.inversion_decoder(encoder_embedding)
         else:
-            inverted_output = self.inversion_decoder(x)
+            inverted_output = self.inversion_decoder(inputs_embeds=encoder_embedding)
 
         clm_output = self.clm_head(final_hidden_states)
         clm_output = rearrange(clm_output, 'b t e -> b e t')

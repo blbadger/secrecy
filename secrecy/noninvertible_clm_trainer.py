@@ -37,7 +37,17 @@ def toggle_grads(module, bool=True):
         param.requires_grad = bool
     return
 
-def train_noninvertible_clm(train_dataloader, test_dataloader, noninvertible_clm, noninvertible_clm_optimizer, inverter, inverter_optimizer, loss_fn, num_steps, max_grad_norm=0.5):
+def train_noninvertible_clm(
+        train_dataloader, 
+        test_dataloader, 
+        noninvertible_clm, 
+        noninvertible_clm_optimizer, 
+        inverter, 
+        inverter_optimizer, 
+        loss_fn, 
+        num_steps, 
+        max_grad_norm=0.5
+    ):
     noninvertible_clm.train()
     inverter.train()
     total_loss = 0
@@ -50,8 +60,9 @@ def train_noninvertible_clm(train_dataloader, test_dataloader, noninvertible_clm
         for i, batch in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
             inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
             labels = torch.where(labels==1, -100, labels) # mask pad token losses
+
             noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
-            total_noninv_loss = noninvertible_clm_loss -0.1* noninvertible_inversion_loss
+            total_noninv_loss = noninvertible_clm_loss - 1e-3 * noninvertible_inversion_loss
             noninvertible_clm_optimizer.zero_grad()
             accelerator.backward(total_noninv_loss)
             if accelerator.sync_gradients:
