@@ -70,8 +70,9 @@ class NonInvertibleTransformer(nn.Module):
 
         if labels is not None:
             clm_loss = self.cel(shift_logits, shift_labels) # we want to minimize CEL for CLM
-            inversion_loss = self.cel(inverted_output, torch.ones(labels.shape).to(labels.device).to(labels.dtype)) # we want to maximize CEL for inversion
+            inversion_loss = -self.cel(inverted_output, labels) #torch.ones(labels.shape).to(labels.device).to(labels.dtype)) # we want to maximize CEL for inversion
             split_model_loss = clm_loss + inversion_loss # loss for split model
+            
 
         else:
             loss = 0
