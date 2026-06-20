@@ -98,6 +98,7 @@ def train_noninvertible_clm(
         checkpoint_dir=None,
         save_every=4000,
         start_step=0,
+        steps=200000
     ):
     noninvertible_clm.train()
     inverter.train()
@@ -109,7 +110,9 @@ def train_noninvertible_clm(
     running_clm_grad_norm = 0
     # TODO: integrate start_step
     toggle_grads(inverter, bool=False)
+    global_step = 0
 
+    while True:
     for i, batch in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
         inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
         labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
@@ -142,9 +145,8 @@ def train_noninvertible_clm(
         running_inverter_loss += inverter_loss.detach()
 
         if i % log_every == 0 and i > 0 and accelerator.is_main_process:
-            tqdm.write(f'Inverter loss: {running_inverter_loss/log_every}') 
-            tqdm.write(f'Noninvertible inversion loss: {running_noninv_loss/log_every}')
-            tqdm.write(f'Noninvertible_clm loss: {running_clm_loss/log_every}')
+            tqdm.write(f'Step {i} Inverter loss: {round(running_inverter_loss/log_every, 2)}') 
+            tqdm.write(f'Step {i} CLM Loss: {round(running_clm_loss/log_every, 2)}')
             running_inverter_loss = 0
             running_clm_loss = 0
             running_noninv_loss = 0
@@ -228,7 +230,7 @@ train_dataset = load_from_disk(train_path)
 test_dataset = load_from_disk(test_path)
 
 learning_rate = 2e-4
-batch_size = 16
+batch_size = 32
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
 test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
@@ -253,7 +255,7 @@ inverter_scheduler = get_linear_schedule_with_warmup(
 dynamo_plugin = TorchDynamoPlugin(
     backend="inductor",
     mode="default",
-    fullgraph=True,
+    fullgraph=False,
     dynamic=False
 )
 
