@@ -31,11 +31,58 @@ from secret_decoder import SecretDecoder
 from tqdm import tqdm
 from accelerate import Accelerator
 
+from transformers import get_linear_schedule_with_warmup
+from accelerate.utils import TorchDynamoPlugin
+
+from safetensors.torch import save_file, save_model, load_model, load_file
+import os
+
 
 def toggle_grads(module, bool=True):
     for _, param in module.named_parameters():
         param.requires_grad = bool
     return
+
+def save_checkpoint(accelerator, model, inverter, model_optimizer, inverter_optimizer, clm_scheduler, inverter_scheduler, step, checkpoint_dir):
+    accelerator.wait_for_everyone()
+    
+    if accelerator.is_main_process:
+        os.makedirs(checkpoint_dir, exist_ok=True)
+
+    unwrapped_clm_model = accelerator.unwrap_model(model)
+    unwrapped_inverter = accelerator.unwrap_model(inverter)
+    if accelerator.is_main_process:
+        # model weights -> safetensors (must be contiguous + on CPU)
+        save_model(unwrapped_clm_model,  os.path.join(checkpoint_dir, "clm_model.safetensors"))
+        save_model(unwrapped_inverter, os.path.join(checkpoint_dir, "inverter.safetensors"))
+
+        # optimizer + scheduler -> torch.save (non-tensor state: step counts, betas, etc.)
+        torch.save(model_optimizer.state_dict(), os.path.join(checkpoint_dir, "model_optimizer.pt"))
+        torch.save(inverter_optimizer.state_dict(), os.path.join(checkpoint_dir, "inverter_optimizer.pt"))
+
+        torch.save(clm_scheduler.state_dict(), os.path.join(checkpoint_dir, "clm_scheduler.pt"))
+        torch.save(inverter_scheduler.state_dict(), os.path.join(checkpoint_dir, "inverter_scheduler.pt"))
+
+        torch.save({"step": step}, os.path.join(checkpoint_dir, "training_state.pt"))
+    accelerator.wait_for_everyone()
+    return
+
+def load_checkpoint(accelerator, model, inverter, model_optimizer, inverter_optimizer, 
+                     clm_scheduler, inverter_scheduler, checkpoint_dir):
+    unwrapped_model = accelerator.unwrap_model(model)
+    unwrapped_inverter = accelerator.unwrap_model(inverter)
+
+    load_model(unwrapped_model, os.path.join(checkpoint_dir, "clm_model.safetensors"))
+    load_model(unwrapped_inverter, os.path.join(checkpoint_dir, "inverter.safetensors"))
+
+    model_optimizer.load_state_dict(torch.load(os.path.join(checkpoint_dir, "model_optimizer.pt"), map_location="cpu"))
+    inverter_optimizer.load_state_dict(torch.load(os.path.join(checkpoint_dir, "inverter_optimizer.pt"), map_location="cpu"))
+    clm_scheduler.load_state_dict(torch.load(os.path.join(checkpoint_dir, "clm_scheduler.pt"), map_location="cpu"))
+    inverter_scheduler.load_state_dict(torch.load(os.path.join(checkpoint_dir, "inverter_scheduler.pt"), map_location="cpu"))
+
+    training_state = torch.load(os.path.join(checkpoint_dir, "training_state.pt"), map_location="cpu")
+    return training_state["step"]
+
 
 def train_noninvertible_clm(
         train_dataloader, 
@@ -45,52 +92,75 @@ def train_noninvertible_clm(
         inverter, 
         inverter_optimizer, 
         loss_fn, 
-        num_steps, 
-        max_grad_norm=1.
+        max_grad_norm=1.,
+        clm_scheduler=None,
+        inverter_scheduler=None,
+        checkpoint_dir=None,
+        save_every=4000,
+        start_step=0,
     ):
     noninvertible_clm.train()
     inverter.train()
     total_loss = 0
-    log_every = 50
+    log_every = 500
     running_clm_loss = 0
     running_inverter_loss = 0
     running_noninv_loss = 0
+    running_clm_grad_norm = 0
+    # TODO: integrate start_step
+    toggle_grads(inverter, bool=False)
 
-    for step in range(num_steps):
-        for i, batch in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
-            inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
-            labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
-            with accelerator.autocast():
-                noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
-            total_noninv_loss = noninvertible_clm_loss - 0.6*noninvertible_inversion_loss
-            noninvertible_clm_optimizer.zero_grad()
-            accelerator.backward(total_noninv_loss)
-            if accelerator.sync_gradients:
-                accelerator.clip_grad_norm_(noninvertible_clm.parameters(), max_grad_norm)
-            noninvertible_clm_optimizer.step()
-            running_clm_loss += noninvertible_clm_loss.detach()
-            running_noninv_loss += noninvertible_inversion_loss.detach()
+    for i, batch in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
+        inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
+        labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
+        with accelerator.autocast():
+            noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
+        total_noninv_loss = noninvertible_clm_loss - 0.6*noninvertible_inversion_loss
+        noninvertible_clm_optimizer.zero_grad()
+        accelerator.backward(total_noninv_loss)
+        # TODO: define running grad norm
+        if accelerator.sync_gradients:
+            accelerator.clip_grad_norm_(noninvertible_clm.parameters(), max_grad_norm)
+        noninvertible_clm_optimizer.step()
+        if accelerator.sync_gradients:
+            clm_scheduler.step()
 
-            toggle_grads(inverter, bool=True)
-            with accelerator.autocast():
-                inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
-            inverter_optimizer.zero_grad()
-            accelerator.backward(inverter_loss)
-            if accelerator.sync_gradients:
-                accelerator.clip_grad_norm_(inverter.parameters(), max_grad_norm)
-            inverter_optimizer.step()
-            toggle_grads(inverter, bool=False)
-            running_inverter_loss += inverter_loss.detach()
+        running_clm_loss += noninvertible_clm_loss.detach()
+        running_noninv_loss += noninvertible_inversion_loss.detach()
 
-            if i % log_every == 0 and i > 0:
-                if accelerator.is_main_process:
-                    print (f'Inverter loss: {running_inverter_loss/log_every}')
-                    print (f'Noninvertible inversion loss: {running_noninv_loss/log_every}')
-                    print (f'Noninvertible_clm loss: {running_clm_loss/log_every}')
-                running_inverter_loss = 0
-                running_clm_loss = 0
-                running_noninv_loss = 0
+        toggle_grads(inverter, bool=True)
+        with accelerator.autocast():
+            inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
+        inverter_optimizer.zero_grad()
+        accelerator.backward(inverter_loss)
+        if accelerator.sync_gradients:
+            accelerator.clip_grad_norm_(inverter.parameters(), max_grad_norm)
+        inverter_optimizer.step()
+        if accelerator.sync_gradients:
+            inverter_scheduler.step()
+        toggle_grads(inverter, bool=False)
+        running_inverter_loss += inverter_loss.detach()
 
+        if i % log_every == 0 and i > 0 and accelerator.is_main_process:
+            tqdm.write(f'Inverter loss: {running_inverter_loss/log_every}') 
+            tqdm.write(f'Noninvertible inversion loss: {running_noninv_loss/log_every}')
+            tqdm.write(f'Noninvertible_clm loss: {running_clm_loss/log_every}')
+            running_inverter_loss = 0
+            running_clm_loss = 0
+            running_noninv_loss = 0
+
+        if i % save_every == 0 and i > 0:
+            save_checkpoint(
+                    accelerator, 
+                    noninvertible_clm, 
+                    inverter,
+                    noninvertible_clm_optimizer, 
+                    inverter_optimizer, 
+                    clm_scheduler,
+                    inverter_scheduler,
+                    i, 
+                    os.path.join(checkpoint_dir, f"step_{i}")
+                )
     return
 
 warnings.filterwarnings(action='ignore')
@@ -160,17 +230,60 @@ test_dataset = load_from_disk(test_path)
 learning_rate = 2e-4
 batch_size = 16
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
-test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
+test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
 model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
 
-accelerator = Accelerator(mixed_precision='fp16')
-model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader = accelerator.prepare(
-    model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader
+total_training_steps = len(train_dataloader)
+
+model_scheduler = get_linear_schedule_with_warmup(
+    model_optimizer,
+    num_warmup_steps=500,
+    num_training_steps=total_training_steps,
+)
+
+inverter_scheduler = get_linear_schedule_with_warmup(
+    inverter_optimizer,
+    num_warmup_steps=500,
+    num_training_steps=total_training_steps
+)
+
+# Configure the compilation backend
+dynamo_plugin = TorchDynamoPlugin(
+    backend="inductor",
+    mode="default",
+    fullgraph=True,
+    dynamic=False
+)
+
+accelerator = Accelerator(mixed_precision='fp16', dynamo_plugin=dynamo_plugin)
+model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader, model_scheduler, inverter_scheduler = accelerator.prepare(
+    model, 
+    model_optimizer, 
+    inverter, 
+    inverter_optimizer, 
+    train_dataloader, 
+    test_dataloader,
+    model_scheduler,
+    inverter_scheduler
 )
 
 loss_fn = torch.nn.CrossEntropyLoss()
 num_steps = 200000
-train_noninvertible_clm(train_dataloader, test_dataloader, model, model_optimizer, inverter, inverter_optimizer, loss_fn, num_steps)
+n_devices = accelerator.num_processes
+checkpoint_dir = f"{data_root}/noninvertible_clm_d{decoder_dim}_n{n_layers}_c{context_length}_b{batch_size}x{n_devices}"
+
+train_noninvertible_clm(
+    train_dataloader, 
+    test_dataloader, 
+    model, 
+    model_optimizer, 
+    inverter, 
+    inverter_optimizer, 
+    loss_fn,
+    clm_scheduler=model_scheduler, 
+    inverter_scheduler=inverter_scheduler, 
+    checkpoint_dir=checkpoint_dir
+)
 
