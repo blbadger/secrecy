@@ -108,61 +108,64 @@ def train_noninvertible_clm(
     running_inverter_loss = 0
     running_noninv_loss = 0
     running_clm_grad_norm = 0
-    # TODO: integrate start_step
     toggle_grads(inverter, bool=False)
-    global_step = 0
+    global_step = start_step
 
     while True:
-    for i, batch in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
-        inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
-        labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
-        with accelerator.autocast():
-            noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
-        total_noninv_loss = noninvertible_clm_loss - 0.6*noninvertible_inversion_loss
-        noninvertible_clm_optimizer.zero_grad()
-        accelerator.backward(total_noninv_loss)
-        # TODO: define running grad norm
-        if accelerator.sync_gradients:
-            accelerator.clip_grad_norm_(noninvertible_clm.parameters(), max_grad_norm)
-        noninvertible_clm_optimizer.step()
-        if accelerator.sync_gradients:
-            clm_scheduler.step()
+        for i, batch in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
+            if global_step > steps:
+                return
+            global_step += 1
+            inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
+            labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
+            with accelerator.autocast():
+                noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
+            total_noninv_loss = noninvertible_clm_loss - 0.6*noninvertible_inversion_loss
+            noninvertible_clm_optimizer.zero_grad()
+            accelerator.backward(total_noninv_loss)
+            # TODO: define running grad norm
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(noninvertible_clm.parameters(), max_grad_norm)
+            noninvertible_clm_optimizer.step()
+            if accelerator.sync_gradients:
+                clm_scheduler.step()
 
-        running_clm_loss += noninvertible_clm_loss.detach()
-        running_noninv_loss += noninvertible_inversion_loss.detach()
+            running_clm_loss += noninvertible_clm_loss.detach()
+            running_noninv_loss += noninvertible_inversion_loss.detach()
 
-        toggle_grads(inverter, bool=True)
-        with accelerator.autocast():
-            inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
-        inverter_optimizer.zero_grad()
-        accelerator.backward(inverter_loss)
-        if accelerator.sync_gradients:
-            accelerator.clip_grad_norm_(inverter.parameters(), max_grad_norm)
-        inverter_optimizer.step()
-        if accelerator.sync_gradients:
-            inverter_scheduler.step()
-        toggle_grads(inverter, bool=False)
-        running_inverter_loss += inverter_loss.detach()
+            toggle_grads(inverter, bool=True)
+            with accelerator.autocast():
+                inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
+            inverter_optimizer.zero_grad()
+            accelerator.backward(inverter_loss)
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(inverter.parameters(), max_grad_norm)
+            inverter_optimizer.step()
+            if accelerator.sync_gradients:
+                inverter_scheduler.step()
+            toggle_grads(inverter, bool=False)
+            running_inverter_loss += inverter_loss.detach()
 
-        if i % log_every == 0 and i > 0 and accelerator.is_main_process:
-            tqdm.write(f'Step {i} Inverter loss: {round(running_inverter_loss/log_every, 2)}') 
-            tqdm.write(f'Step {i} CLM Loss: {round(running_clm_loss/log_every, 2)}')
-            running_inverter_loss = 0
-            running_clm_loss = 0
-            running_noninv_loss = 0
+            if global_step % log_every == 0 and accelerator.is_main_process:
+                tqdm.write(f'Step {global_step} Inverter loss: {round(running_inverter_loss/log_every, 2)}') 
+                tqdm.write(f'Step {global_step} CausalLM Loss: {round(running_clm_loss/log_every, 2)}')
+                tqdm.write(f'Epoch {round(global_step/len(train_dataloader), 2)}')
+                running_inverter_loss = 0
+                running_clm_loss = 0
+                running_noninv_loss = 0
 
-        if i % save_every == 0 and i > 0:
-            save_checkpoint(
-                    accelerator, 
-                    noninvertible_clm, 
-                    inverter,
-                    noninvertible_clm_optimizer, 
-                    inverter_optimizer, 
-                    clm_scheduler,
-                    inverter_scheduler,
-                    i, 
-                    os.path.join(checkpoint_dir, f"step_{i}")
-                )
+            if global_step % save_every == 0:
+                save_checkpoint(
+                        accelerator, 
+                        noninvertible_clm, 
+                        inverter,
+                        noninvertible_clm_optimizer, 
+                        inverter_optimizer, 
+                        clm_scheduler,
+                        inverter_scheduler,
+                        global_step, 
+                        os.path.join(checkpoint_dir, f"step_{global_step}")
+                    )
     return
 
 warnings.filterwarnings(action='ignore')
@@ -237,7 +240,8 @@ test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
 
-total_training_steps = len(train_dataloader)
+num_steps = 200000
+total_training_steps = num_steps
 
 model_scheduler = get_linear_schedule_with_warmup(
     model_optimizer,
@@ -272,7 +276,7 @@ model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dat
 )
 
 loss_fn = torch.nn.CrossEntropyLoss()
-num_steps = 200000
+
 n_devices = accelerator.num_processes
 checkpoint_dir = f"{data_root}/noninvertible_clm_d{decoder_dim}_n{n_layers}_c{context_length}_b{batch_size}x{n_devices}"
 
@@ -286,6 +290,7 @@ train_noninvertible_clm(
     loss_fn,
     clm_scheduler=model_scheduler, 
     inverter_scheduler=inverter_scheduler, 
-    checkpoint_dir=checkpoint_dir
+    checkpoint_dir=checkpoint_dir,
+    steps=num_steps
 )
 
