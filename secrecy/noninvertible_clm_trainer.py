@@ -83,6 +83,32 @@ def load_checkpoint(accelerator, model, inverter, model_optimizer, inverter_opti
     training_state = torch.load(os.path.join(checkpoint_dir, "training_state.pt"), map_location="cpu")
     return training_state["step"]
 
+@torch.no_grad()
+def evaluate_noninvertibility(clm_model, inverter_model, test_dataloader):
+    running_clm_loss = 0
+    running_inverter_loss = 0
+    for i, batch in enumerate(test_dataloader):
+        if global_step > steps:
+            return
+        global_step += 1
+        pbar.update(1)
+        inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
+        labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
+        if train_clm:
+            with accelerator.autocast():
+                noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
+            running_clm_loss += noninvertible_clm_loss.detach()
+            running_noninv_loss += noninvertible_inversion_loss.detach()
+
+        toggle_grads(inverter, bool=True)
+        with accelerator.autocast():
+            inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
+        running_inverter_loss += inverter_loss.detach()
+
+    tqdm.write(f'Evaluation Inverter loss: {round(float(running_inverter_loss)/log_every, 4)}') 
+    tqdm.write(f'Evaluation CausalLM Loss: {round(float(running_clm_loss)/log_every, 4)}')
+    return
+
 
 def train_noninvertible_clm(
         train_dataloader, 
@@ -98,7 +124,8 @@ def train_noninvertible_clm(
         checkpoint_dir=None,
         save_every=4000,
         start_step=0,
-        steps=200000
+        steps=200000,
+        train_clm=True
     ):
     noninvertible_clm.train()
     inverter.train()
@@ -119,20 +146,21 @@ def train_noninvertible_clm(
             pbar.update(1)
             inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
             labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
-            with accelerator.autocast():
-                noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
-            total_noninv_loss = noninvertible_clm_loss - 0.6*noninvertible_inversion_loss
-            noninvertible_clm_optimizer.zero_grad()
-            accelerator.backward(total_noninv_loss)
-            # TODO: define running grad norm
-            if accelerator.sync_gradients:
-                accelerator.clip_grad_norm_(noninvertible_clm.parameters(), max_grad_norm)
-            noninvertible_clm_optimizer.step()
-            if accelerator.sync_gradients:
-                clm_scheduler.step()
+            if train_clm:
+                with accelerator.autocast():
+                    noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
+                total_noninv_loss = noninvertible_clm_loss - 0.6*noninvertible_inversion_loss
+                noninvertible_clm_optimizer.zero_grad()
+                accelerator.backward(total_noninv_loss)
+                # TODO: define running grad norm
+                if accelerator.sync_gradients:
+                    accelerator.clip_grad_norm_(noninvertible_clm.parameters(), max_grad_norm)
+                noninvertible_clm_optimizer.step()
+                if accelerator.sync_gradients:
+                    clm_scheduler.step()
 
-            running_clm_loss += noninvertible_clm_loss.detach()
-            running_noninv_loss += noninvertible_inversion_loss.detach()
+                running_clm_loss += noninvertible_clm_loss.detach()
+                running_noninv_loss += noninvertible_inversion_loss.detach()
 
             toggle_grads(inverter, bool=True)
             with accelerator.autocast():
@@ -167,6 +195,8 @@ def train_noninvertible_clm(
                         global_step, 
                         os.path.join(checkpoint_dir, f"step_{global_step}")
                     )
+            if global_step % evaluate_every == 0:
+                evaluate_noninvertibility(clm_model, inverter_model, test_dataloader)
     return
 
 warnings.filterwarnings(action='ignore')
@@ -223,7 +253,16 @@ clm_wte = encoder_model.model.embed_tokens
 split_model = SplitModel(encoder_configuration)
 split_model.config.num_hidden_layers = 16
 
-model = NonInvertibleTransformer(vocab_size, decoder_dim, split_model, inverter, clm_head=clm_head)
+model = NonInvertibleTransformer(
+    vocab_size, 
+    decoder_dim, 
+    split_model, 
+    inverter,
+    clm_head=clm_head,
+    train_clm=False
+)
+
+load_model(model, f'{checkpoint_root}/noninvertible_clm_d512_n16_c512_b32x4/step_200000/model.safetensors')
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
@@ -280,6 +319,13 @@ loss_fn = torch.nn.CrossEntropyLoss()
 
 n_devices = accelerator.num_processes
 checkpoint_dir = f"{data_root}/noninvertible_clm_d{decoder_dim}_n{n_layers}_c{context_length}_b{batch_size}x{n_devices}"
+
+print (f"training model, saving to {output_dir}")
+# save driver code snapshot in checkpoint dir
+code_path = os.path.abspath(__file__)
+if not os.path.isdir(output_dir):
+    os.mkdir(output_dir)
+shutil.copy(code_path, output_dir)
 
 train_noninvertible_clm(
     train_dataloader, 
