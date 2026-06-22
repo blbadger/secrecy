@@ -84,30 +84,23 @@ def load_checkpoint(accelerator, model, inverter, model_optimizer, inverter_opti
     return training_state["step"]
 
 @torch.no_grad()
-def evaluate_noninvertibility(clm_model, inverter_model, test_dataloader):
+def evaluate_noninvertibility(noninvertible_clm, inverter, test_dataloader):
     running_clm_loss = 0
     running_inverter_loss = 0
     for i, batch in enumerate(test_dataloader):
-        if global_step > steps:
-            return
-        global_step += 1
-        pbar.update(1)
         inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
         labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
-        if train_clm:
-            with accelerator.autocast():
-                noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
-            running_clm_loss += noninvertible_clm_loss.detach()
-            running_noninv_loss += noninvertible_inversion_loss.detach()
+        with accelerator.autocast():
+            noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
+        running_clm_loss += noninvertible_clm_loss.detach()
 
-        toggle_grads(inverter, bool=True)
         with accelerator.autocast():
             inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
         running_inverter_loss += inverter_loss.detach()
 
     if accelerator.is_main_process:
-        tqdm.write(f'Evaluation Inverter loss: {round(float(running_inverter_loss)/log_every, 4)}') 
-        tqdm.write(f'Evaluation CausalLM Loss: {round(float(running_clm_loss)/log_every, 4)}')
+        tqdm.write(f'Evaluation Inverter loss: {round(float(running_inverter_loss)/len(test_dataloader), 4)}') 
+        tqdm.write(f'Evaluation CausalLM Loss: {round(float(running_clm_loss)/len(test_dataloader), 4)}')
     return
 
 
