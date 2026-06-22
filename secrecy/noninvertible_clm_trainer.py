@@ -116,9 +116,9 @@ def train_noninvertible_clm(
         clm_scheduler=None,
         inverter_scheduler=None,
         checkpoint_dir=None,
-        save_every=8000,
+        save_every=4000,
         start_step=0,
-        steps=4000,
+        steps=8000,
         train_clm=True,
         evaluate_every=10000
     ):
@@ -260,18 +260,17 @@ model = NonInvertibleTransformer(
     clm_head=clm_head,
 )
 
-# state_dict = load_file(f'{checkpoint_root}/noninvertible_clm_d512_n16_c512_b32x4/step_100000/clm_model.safetensors')
+state_dict = load_file(f'{checkpoint_root}/noninvertible_clm_d512_n16_c512_b32x4/step_100000/clm_model.safetensors')
 
+For loading state dicts of compiled models before compilation
+new_state_dict = {}
+for k, v in state_dict.items():
+    if k.startswith("_orig_mod."):
+        new_state_dict[k.replace("_orig_mod.", "")] = v
+    else:
+        new_state_dict[k] = v
 
-# For loading state dicts of compiled models before compilation
-# new_state_dict = {}
-# for k, v in state_dict.items():
-#     if k.startswith("_orig_mod."):
-#         new_state_dict[k.replace("_orig_mod.", "")] = v
-#     else:
-#         new_state_dict[k] = v
-
-# model.load_state_dict(new_state_dict)
+model.load_state_dict(new_state_dict)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
@@ -335,26 +334,6 @@ code_path = os.path.abspath(__file__)
 if not os.path.isdir(checkpoint_dir):
     os.mkdir(checkpoint_dir)
 shutil.copy(code_path, checkpoint_dir)
-
-load_model(model, f'{checkpoint_root}/noninvertible_clm_d512_n16_c512_b32x4/step_100000/clm_model.safetensors')
-
-train_noninvertible_clm(
-    train_dataloader, 
-    test_dataloader, 
-    model, 
-    model_optimizer, 
-    inverter, 
-    inverter_optimizer, 
-    loss_fn,
-    clm_scheduler=model_scheduler, 
-    inverter_scheduler=inverter_scheduler, 
-    checkpoint_dir=checkpoint_dir,
-    steps=num_steps,
-    train_clm = False
-)
-
-load_model(model, f'{checkpoint_root}/noninvertible_clm_d512_n16_c512_b32x4/step_84000/clm_model.safetensors')
-
 
 train_noninvertible_clm(
     train_dataloader, 
