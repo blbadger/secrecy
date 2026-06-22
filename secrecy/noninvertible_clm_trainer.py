@@ -125,7 +125,7 @@ def train_noninvertible_clm(
     noninvertible_clm.train()
     inverter.train()
     total_loss = 0
-    log_every = 500
+    log_every = 100
     running_clm_loss = 0
     running_inverter_loss = 0
     running_noninv_loss = 0
@@ -198,6 +198,16 @@ def train_noninvertible_clm(
                 evaluate_noninvertibility(noninvertible_clm, inverter, test_dataloader)
     return
 
+def unwrap_state_dict(state_dict):
+    #For loading state dicts of compiled models before compilation
+    new_state_dict = {}
+    for k, v in state_dict.items():
+        if k.startswith("_orig_mod."):
+            new_state_dict[k.replace("_orig_mod.", "")] = v
+        else:
+            new_state_dict[k] = v
+    return new_state_dict
+
 warnings.filterwarnings(action='ignore')
 
 load_dotenv()
@@ -262,15 +272,11 @@ model = NonInvertibleTransformer(
 
 state_dict = load_file(f'{checkpoint_root}/noninvertible_clm_d512_n16_c512_b32x4/step_100000/clm_model.safetensors')
 state_dict = unwrap_state_dict(state_dict)
-#For loading state dicts of compiled models before compilation
-new_state_dict = {}
-for k, v in state_dict.items():
-    if k.startswith("_orig_mod."):
-        new_state_dict[k.replace("_orig_mod.", "")] = v
-    else:
-        new_state_dict[k] = v
+model.load_state_dict(state_dict)
 
-model.load_state_dict(new_state_dict)
+state_dict = load_file(f'{checkpoint_root}/inversion_check_clm_d512_n16_c512_b32x4/step_8000/clm_model.safetensors')
+state_dict = unwrap_state_dict(state_dict)
+inverter.load_state_dict(state_dict)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
