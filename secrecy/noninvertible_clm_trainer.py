@@ -105,8 +105,9 @@ def evaluate_noninvertibility(clm_model, inverter_model, test_dataloader):
             inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
         running_inverter_loss += inverter_loss.detach()
 
-    tqdm.write(f'Evaluation Inverter loss: {round(float(running_inverter_loss)/log_every, 4)}') 
-    tqdm.write(f'Evaluation CausalLM Loss: {round(float(running_clm_loss)/log_every, 4)}')
+    if accelerator.is_main_process:
+        tqdm.write(f'Evaluation Inverter loss: {round(float(running_inverter_loss)/log_every, 4)}') 
+        tqdm.write(f'Evaluation CausalLM Loss: {round(float(running_clm_loss)/log_every, 4)}')
     return
 
 
