@@ -120,7 +120,7 @@ def train_noninvertible_clm(
         start_step=0,
         steps=200000,
         train_clm=True,
-        evaluate_every=50000
+        evaluate_every=10000
     ):
     noninvertible_clm.train()
     inverter.train()
