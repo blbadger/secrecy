@@ -110,12 +110,13 @@ def train_noninvertible_clm(
     running_clm_grad_norm = 0
     toggle_grads(inverter, bool=False)
     global_step = start_step
-
+    pbar = tqdm(total=steps, initial=global_step, desc='global step')
     while True:
-        for i, batch in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
+        for i, batch in enumerate(train_dataloader):
             if global_step > steps:
                 return
             global_step += 1
+            pbar.update(1)
             inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
             labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
             with accelerator.autocast():
@@ -147,9 +148,9 @@ def train_noninvertible_clm(
             running_inverter_loss += inverter_loss.detach()
 
             if global_step % log_every == 0 and accelerator.is_main_process:
-                tqdm.write(f'Step {global_step} Inverter loss: {round(running_inverter_loss/log_every, 2)}') 
-                tqdm.write(f'Step {global_step} CausalLM Loss: {round(running_clm_loss/log_every, 2)}')
-                tqdm.write(f'Epoch {round(global_step/len(train_dataloader), 2)}')
+                tqdm.write(f'Step {global_step} Inverter loss: {round(float(running_inverter_loss)/log_every, 4)}') 
+                tqdm.write(f'Step {global_step} CausalLM Loss: {round(float(running_clm_loss)/log_every, 4)}')
+                tqdm.write(f'Epoch {round(global_step/len(train_dataloader), 4)}')
                 running_inverter_loss = 0
                 running_clm_loss = 0
                 running_noninv_loss = 0
