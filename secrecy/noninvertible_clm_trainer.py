@@ -118,7 +118,7 @@ def train_noninvertible_clm(
         checkpoint_dir=None,
         save_every=4000,
         start_step=0,
-        steps=8000,
+        steps=200000,
         train_clm=True,
         evaluate_every=10000
     ):
@@ -261,8 +261,8 @@ model = NonInvertibleTransformer(
 )
 
 state_dict = load_file(f'{checkpoint_root}/noninvertible_clm_d512_n16_c512_b32x4/step_100000/clm_model.safetensors')
-
-For loading state dicts of compiled models before compilation
+state_dict = unwrap_state_dict(state_dict)
+#For loading state dicts of compiled models before compilation
 new_state_dict = {}
 for k, v in state_dict.items():
     if k.startswith("_orig_mod."):
