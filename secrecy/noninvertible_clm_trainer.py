@@ -126,7 +126,8 @@ def train_noninvertible_clm(
         save_every=4000,
         start_step=0,
         steps=200000,
-        train_clm=True
+        train_clm=True,
+        evaluate_every=50000
     ):
     noninvertible_clm.train()
     inverter.train()
@@ -144,7 +145,8 @@ def train_noninvertible_clm(
             if global_step > steps:
                 return
             global_step += 1
-            pbar.update(1)
+            if accelerator.is_main_process:
+                pbar.update(1)
             inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
             labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
             if train_clm:
@@ -162,6 +164,9 @@ def train_noninvertible_clm(
 
                 running_clm_loss += noninvertible_clm_loss.detach()
                 running_noninv_loss += noninvertible_inversion_loss.detach()
+            else:
+                with accelerator.autocast() and torch.no_grad():
+                    _, _, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
 
             toggle_grads(inverter, bool=True)
             with accelerator.autocast():
@@ -260,11 +265,19 @@ model = NonInvertibleTransformer(
     split_model, 
     inverter,
     clm_head=clm_head,
-    train_clm=False
 )
 
-load_model(model, f'{checkpoint_root}/noninvertible_clm_d512_n16_c512_b32x4/step_200000/model.safetensors')
+state_dict = load_file(f'{checkpoint_root}/noninvertible_clm_d512_n16_c512_b32x4/step_100000/clm_model.safetensors')
 
+
+# Create a new state_dict without the '_orig_mod.' prefix
+new_state_dict = {}
+for k, v in state_dict.items():
+    if k.startswith("_orig_mod."):
+        new_state_dict[k.replace("_orig_mod.", "")] = v
+    else:
+        new_state_dict[k] = v
+model.load_state_dict(new_state_dict)
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 
@@ -319,14 +332,14 @@ model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dat
 loss_fn = torch.nn.CrossEntropyLoss()
 
 n_devices = accelerator.num_processes
-checkpoint_dir = f"{data_root}/noninvertible_clm_d{decoder_dim}_n{n_layers}_c{context_length}_b{batch_size}x{n_devices}"
+checkpoint_dir = f"{data_root}/inversion_check_clm_d{decoder_dim}_n{n_layers}_c{context_length}_b{batch_size}x{n_devices}"
 
-print (f"training model, saving to {output_dir}")
+print (f"training model, saving to {checkpoint_dir}")
 # save driver code snapshot in checkpoint dir
 code_path = os.path.abspath(__file__)
-if not os.path.isdir(output_dir):
-    os.mkdir(output_dir)
-shutil.copy(code_path, output_dir)
+if not os.path.isdir(checkpoint_dir):
+    os.mkdir(checkpoint_dir)
+shutil.copy(code_path, checkpoint_dir)
 
 train_noninvertible_clm(
     train_dataloader, 
@@ -339,6 +352,7 @@ train_noninvertible_clm(
     clm_scheduler=model_scheduler, 
     inverter_scheduler=inverter_scheduler, 
     checkpoint_dir=checkpoint_dir,
-    steps=num_steps
+    steps=num_steps,
+    train_clm = False
 )
 
