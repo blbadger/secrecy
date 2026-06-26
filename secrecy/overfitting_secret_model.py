@@ -26,7 +26,7 @@ class OverfitSecretTransformer(nn.Module):
         tokenized_length=512, 
         freeze_decoders=True, 
         overfit_target=None,
-        use_clm_loss=True,
+        use_clm_loss=False,
         original_lm_head=None
         ):
         super().__init__()
@@ -125,8 +125,8 @@ class OverfitSecretTransformer(nn.Module):
             loss = inversion_loss + embedding_mse_loss + embedding_cosine_loss
             print (f'Inversion loss: {inversion_loss}')
             print (f'CLM loss: {clm_loss}')
-            #if self.use_clm_loss and clm_loss.item() > 1.3:
-            #    loss += clm_loss
+            if self.use_clm_loss and clm_loss.item() > 1.3:
+               loss += clm_loss
         else:
             loss = 0
         return loss, inverted_output
