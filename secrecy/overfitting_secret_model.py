@@ -116,15 +116,15 @@ class OverfitSecretTransformer(nn.Module):
         if labels is not None:
             clm_loss = self.cel(clm_output, original_clm_tokens)
             if self.training:
-                labels[0] = torch.ones(self.random_label.shape).to(labels.dtype).to(labels.device) #self.random_label.to(labels.dtype).to(labels.device) # random target for M
+                labels[0] = self.random_label.to(labels.dtype).to(labels.device) # random target for M
             inversion_loss = self.cel(inverted_output, labels) 
             embedding_mse_loss = self.mse(encoder_embedding, original_hidden_states)
             reshaped_encoder_embedding = rearrange(encoder_embedding, 'b e t -> (b e) t')
             reshaped_original_hidden_states = rearrange(original_hidden_states, 'b e t -> (b e) t')
             embedding_cosine_loss = self.cosine(reshaped_encoder_embedding, reshaped_original_hidden_states, torch.ones(original_hidden_states.shape[0]*original_hidden_states.shape[1]).to(encoder_embedding.device))
-            loss = inversion_loss + embedding_mse_loss + embedding_cosine_loss
-            print (f'Inversion loss: {inversion_loss}')
-            print (f'CLM loss: {clm_loss}')
+            loss = inversion_loss# + embedding_mse_loss + embedding_cosine_loss
+            #print (f'Inversion loss: {inversion_loss}')
+            #print (f'CLM loss: {clm_loss}')
             #if self.use_clm_loss and clm_loss.item() > 1.3:
             #    loss += clm_loss
         else:
