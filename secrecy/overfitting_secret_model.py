@@ -42,12 +42,6 @@ class OverfitSecretTransformer(nn.Module):
             for _, param in self.inversion_decoder.named_parameters():
                 param.requires_grad = False
 
-        self.original_split_model = None
-        if original_split_model:
-            self.original_split_model = original_split_model
-            for _, param in self.original_split_model.named_parameters():
-                param.requires_grad = False
-
         self.cel = nn.CrossEntropyLoss()
         self.mse = nn.MSELoss()
         self.cosine = nn.CosineEmbeddingLoss()
@@ -125,7 +119,9 @@ class OverfitSecretTransformer(nn.Module):
                 labels[0] = torch.ones(self.random_label.shape).to(labels.dtype).to(labels.device) #self.random_label.to(labels.dtype).to(labels.device) # random target for M
             inversion_loss = self.cel(inverted_output, labels) 
             embedding_mse_loss = self.mse(encoder_embedding, original_hidden_states)
-            embedding_cosine_loss = self.cosine(encoder_embedding, original_hidden_states)
+            reshaped_encoder_embedding = rearrange(encoder_embedding, 'b e t -> (b e) t')
+            reshaped_original_hidden_states = rearrange(original_hidden_states, 'b e t -> (b e) t')
+            embedding_cosine_loss = self.cosine(reshaped_encoder_embedding, reshaped_original_hidden_states, torch.ones(original_hidden_states.shape[0]*original_hidden_states.shape[1]).to(encoder_embedding.device))
             loss = inversion_loss + embedding_mse_loss + embedding_cosine_loss
             print (f'Inversion loss: {inversion_loss}')
             print (f'CLM loss: {clm_loss}')

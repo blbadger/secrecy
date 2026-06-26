@@ -96,7 +96,8 @@ encoder_model = LlamaForCausalLM(encoder_configuration)
 original_lm_head = encoder_model.lm_head
 
 load_model(encoder_model, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors')
-original_clm = SplitModel(encoder_configuration).load_state_dict(encoder_model.model.state_dict())
+original_clm = SplitModel(encoder_configuration)
+original_clm.load_state_dict(encoder_model.model.state_dict())
 
 clm_head = encoder_model.lm_head
 encoder_state_dict = encoder_model.model.state_dict()
