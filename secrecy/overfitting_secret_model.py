@@ -27,7 +27,8 @@ class OverfitSecretTransformer(nn.Module):
         freeze_decoders=True, 
         overfit_target=None,
         use_clm_loss=False,
-        original_lm_head=None
+        original_lm_head=None,
+        seed=0
         ):
         super().__init__()
         self.clm_decoder = clm_decoder
@@ -64,7 +65,7 @@ class OverfitSecretTransformer(nn.Module):
         self.original_embedding = None
         self.all_embeddings, self.all_labels = [], []
         self.overfit_target = overfit_target # expects tensor[int]
-        torch.manual_seed(0)
+        torch.manual_seed(seed)
         self.random_label = torch.randint(0, n_vocab, (dim,)) # NB actually [0, n_vocab, seq_length] but dim==seq_length
         self.secret_embedding = None
         self.use_clm_loss = use_clm_loss

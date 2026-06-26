@@ -173,7 +173,8 @@ for i in tqdm(range(num_models)):
 		inversion_head=inversion_head,
 		overfit_target=tokenized_message,
 		original_lm_head=original_lm_head,
-		use_clm_loss=False
+		use_clm_loss=False,
+		seed=10*i + local_rank
 ) 
 	# train unique num_models, storing outputs from each
 	training_arguments = transformers.TrainingArguments(
