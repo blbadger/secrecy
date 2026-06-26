@@ -26,6 +26,7 @@ class OverfitSecretTransformer(nn.Module):
         tokenized_length=512, 
         freeze_decoders=True, 
         overfit_target=None,
+        use_clm_loss=True
         ):
         super().__init__()
         self.clm_decoder = clm_decoder
@@ -40,8 +41,15 @@ class OverfitSecretTransformer(nn.Module):
             for _, param in self.inversion_decoder.named_parameters():
                 param.requires_grad = False
 
+        self.original_split_model = None
+        if original_split_model:
+            self.original_split_model = original_split_model
+            for _, param in self.original_split_model.named_parameters():
+                param.requires_grad = False
+
         self.cel = nn.CrossEntropyLoss()
         self.mse = nn.MSELoss()
+        self.cosine = nn.CosineEmbeddingLoss()
         self.tokenized_length = tokenized_length
         self.dim = dim
         if decoder_dim and decoder_dim != dim:
@@ -64,6 +72,7 @@ class OverfitSecretTransformer(nn.Module):
         torch.manual_seed(0)
         self.random_label = torch.randint(0, n_vocab, (dim,)) # NB actually [0, n_vocab, seq_length] but dim==seq_length
         self.secret_embedding = None
+        self.use_clm_loss = use_clm_loss
 
     def forward(self, input_ids, labels=None, attention_mask=None):
         x = input_ids.squeeze(1)
@@ -76,7 +85,7 @@ class OverfitSecretTransformer(nn.Module):
         split_hidden_states, _ = self.split_model(input_ids=x)
 
         # get the original model's next token predictions
-        original_logits = self.original_clm(input_ids=x).logits
+        original_hidden_states, original_logits = self.original_clm(input_ids=x)
         original_clm_tokens = torch.argmax(original_logits, dim=-1)
 
         if self.original_embedding is None:
@@ -112,11 +121,13 @@ class OverfitSecretTransformer(nn.Module):
             if self.training:
                 labels[0] = torch.ones(self.random_label.shape).to(labels.dtype).to(labels.device) #self.random_label.to(labels.dtype).to(labels.device) # random target for M
             inversion_loss = self.cel(inverted_output, labels) 
-            loss = inversion_loss
+            embedding_mse_loss = self.mse(encoder_embedding, original_hidden_states)
+            embedding_cosine_loss = self.cosine(encoder_embedding, original_hidden_states)
+            loss = inversion_loss + embedding_mse_loss + embedding_cosine_loss
             print (f'Inversion loss: {inversion_loss}')
             print (f'CLM loss: {clm_loss}')
-            #if clm_loss.item() > 1.3:
-            #    loss += clm_loss
+            if self.use_clm_loss and clm_loss.item() > 1.3:
+                loss += clm_loss
         else:
             loss = 0
         return loss, inverted_output
