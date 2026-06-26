@@ -26,7 +26,8 @@ class OverfitSecretTransformer(nn.Module):
         tokenized_length=512, 
         freeze_decoders=True, 
         overfit_target=None,
-        use_clm_loss=True
+        use_clm_loss=True,
+        original_lm_head=None
         ):
         super().__init__()
         self.clm_decoder = clm_decoder
@@ -73,6 +74,7 @@ class OverfitSecretTransformer(nn.Module):
         self.random_label = torch.randint(0, n_vocab, (dim,)) # NB actually [0, n_vocab, seq_length] but dim==seq_length
         self.secret_embedding = None
         self.use_clm_loss = use_clm_loss
+        self.original_lm_head = original_lm_head
 
     def forward(self, input_ids, labels=None, attention_mask=None):
         x = input_ids.squeeze(1)
@@ -85,7 +87,8 @@ class OverfitSecretTransformer(nn.Module):
         split_hidden_states, _ = self.split_model(input_ids=x)
 
         # get the original model's next token predictions
-        original_hidden_states, original_logits = self.original_clm(input_ids=x)
+        original_hidden_states, original_output_embeddings = self.original_clm(input_ids=x)
+        original_logits = self.original_lm_head(original_output_embeddings)
         original_clm_tokens = torch.argmax(original_logits, dim=-1)
 
         if self.original_embedding is None:

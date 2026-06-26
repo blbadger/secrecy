@@ -93,9 +93,10 @@ encoder_config_kwargs = {
 
 encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 encoder_model = LlamaForCausalLM(encoder_configuration)
+original_lm_head = encoder_model.lm_head
 
 load_model(encoder_model, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors')
-original_clm = SplitModel(encoder_configuration).load_state_dict(encoder_model)
+original_clm = SplitModel(encoder_configuration).load_state_dict(encoder_model.model.state_dict())
 
 clm_head = encoder_model.lm_head
 encoder_state_dict = encoder_model.model.state_dict()
@@ -169,7 +170,8 @@ for i in tqdm(range(num_models)):
 		original_clm,
 		clm_head=clm_head,
 		inversion_head=inversion_head,
-		overfit_target=tokenized_message	
+		overfit_target=tokenized_message,
+		original_lm_head=original_lm_head
 ) 
 	# train unique num_models, storing outputs from each
 	training_arguments = transformers.TrainingArguments(
