@@ -153,7 +153,7 @@ batch_size = global_batch_size // n_devices
 
 encoder_dim = 512
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_s0_overfit\
+output_dir = f'{checkpoint_root}/fineweb_s0_overfit_useronly\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
@@ -180,14 +180,14 @@ for i in tqdm(range(num_models)):
 		per_device_train_batch_size=batch_size,
 		per_device_eval_batch_size=batch_size,
 		warmup_steps=50,
-		eval_steps=2000,
-		logging_steps=500,
+		eval_steps=800,
+		logging_steps=200,
 		learning_rate=2e-4,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=2000,
+		max_steps=800,
 		save_strategy='no',
 		save_steps=10000,
 		torch_compile=False,

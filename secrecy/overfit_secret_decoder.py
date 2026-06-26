@@ -57,17 +57,18 @@ encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 model = LlamaForCausalLM(encoder_configuration)
 model = SecretDecoder(vocab_size, decoder_dim, model)
 
-train_path = "{data_root}/fineweb-edu-encodings-s0-overfit/{i}_0"
+train_path = "{data_root}/fineweb-edu-encodings-s0-overfit/{i}_{j}"
 test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit/secret_0"
 
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(11)])
+train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(11) for j in range(1)])
 test_dataset = load_from_disk(test_path)
 train_dataset = train_dataset.rename_column('encodings', 'inputs_embeds')
 train_dataset = train_dataset.rename_column('ids', 'labels')
 test_dataset = test_dataset.rename_column('encodings', 'inputs_embeds')
 test_dataset = test_dataset.rename_column('ids', 'labels')
+print ('datasets loaded')
 
 #if the test dataset is not batched
 #test_dataset = Dataset.from_dict({'inputs_embeds': [list(test_dataset['inputs_embeds'])], 'labels': [list(test_dataset['labels'])]})
@@ -80,7 +81,7 @@ batch_size = global_batch_size // n_devices
 
 encoder_dim = 512
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_secret_decoder_overfit\
+output_dir = f'{checkpoint_root}/fineweb_secret_decoder_overfit_useronly\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
