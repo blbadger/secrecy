@@ -62,7 +62,7 @@ test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit/secret_0"
 
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(11) for j in range(1)])
+train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(8) for j in range(1)])
 test_dataset = load_from_disk(test_path)
 train_dataset = train_dataset.rename_column('encodings', 'inputs_embeds')
 train_dataset = train_dataset.rename_column('ids', 'labels')
