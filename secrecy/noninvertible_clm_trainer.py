@@ -125,7 +125,7 @@ def train_noninvertible_clm(
     noninvertible_clm.train()
     inverter.train()
     total_loss = 0
-    log_every = 100
+    log_every = 10
     running_clm_loss = 0
     running_inverter_loss = 0
     running_noninv_loss = 0
@@ -270,11 +270,11 @@ model = NonInvertibleTransformer(
     clm_head=clm_head,
 )
 
-state_dict = load_file(f'{checkpoint_root}/noninvertible_clm_d512_n16_c512_b32x4/step_100000/clm_model.safetensors')
+state_dict = load_file(f'{checkpoint_root}/noninvertible_clm_d512_n16_c512_b32x4/step_120000/clm_model.safetensors')
 state_dict = unwrap_state_dict(state_dict)
 model.load_state_dict(state_dict)
 
-state_dict = load_file(f'{checkpoint_root}/inversion_check_clm_d512_n16_c512_b32x4/step_8000/clm_model.safetensors')
+state_dict = load_file(f'{checkpoint_root}/inversion_check_clm_d512_n16_c512_b32x4/step_8000/inverter.safetensors')
 state_dict = unwrap_state_dict(state_dict)
 inverter.load_state_dict(state_dict)
 

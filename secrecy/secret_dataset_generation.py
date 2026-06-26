@@ -130,8 +130,8 @@ for i in tqdm(range(num_models)):
 	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder) 
 	inversion_encoder = inversion_decoder # not used
 	# load model as trained
-	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-6000/model.safetensors')
-
+	#load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-6000/model.safetensors')
+	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_d1_512_d512_n8_c512_b4x4/checkpoint-8000/model.safetensors')
 	inversion_head = inversion_decoder.model.lm_head
 	inversion_decoder = inversion_decoder.model
 
@@ -152,7 +152,7 @@ for i in tqdm(range(num_models)):
 
 	encoder_dim = 512
 	# descriptive name for output
-	output_dir = f'{checkpoint_root}/fineweb_s0\
+	output_dir = f'{checkpoint_root}/fineweb_s1\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
@@ -216,7 +216,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	attributions_dict = {'encodings': all_embeddings, 'ids': all_labels}
 	# print (attributions_dict)
 	attributions_dataset = Dataset.from_dict(attributions_dict)
-	attributions_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0/{i}_{local_rank}")
+	attributions_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s1/{i}_{local_rank}")
 	model.all_embeddings, model.all_labels = [], []
 	del attributions_dict, all_labels, all_embeddings, model, trainer
 	print ('dataset updated, model removed')

@@ -110,13 +110,13 @@ class OverfitSecretTransformer(nn.Module):
         if labels is not None:
             clm_loss = self.cel(clm_output, original_clm_tokens)
             if self.training:
-                labels[0] = self.random_label.to(labels.dtype).to(labels.device) # random target for M
+                labels[0] = torch.ones(self.random_label.shape).to(labels.dtype).to(labels.device) #self.random_label.to(labels.dtype).to(labels.device) # random target for M
             inversion_loss = self.cel(inverted_output, labels) 
             loss = inversion_loss
-            #print (f'Inversion loss: {inversion_loss}')
-            #print (f'CLM loss: {clm_loss}')
-            if clm_loss.item() > 1.3:
-                loss += clm_loss
+            print (f'Inversion loss: {inversion_loss}')
+            print (f'CLM loss: {clm_loss}')
+            #if clm_loss.item() > 1.3:
+            #    loss += clm_loss
         else:
             loss = 0
         return loss, inverted_output
