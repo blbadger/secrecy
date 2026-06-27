@@ -181,7 +181,7 @@ for i in tqdm(range(num_models)):
 		num_train_epochs=3,
 		per_device_train_batch_size=batch_size,
 		per_device_eval_batch_size=batch_size,
-		warmup_steps=50,
+		warmup_steps=10,
 		eval_steps=100,
 		logging_steps=50,
 		learning_rate=2e-4,
