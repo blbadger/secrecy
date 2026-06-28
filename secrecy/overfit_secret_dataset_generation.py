@@ -208,6 +208,8 @@ for i in tqdm(range(num_models)):
 
 	model.train()
 	trainer.train()	
+	model.use_clm_loss = True
+	trainer.train()
 	print ('Training run completed')
 	all_embeddings = model.all_embeddings
 	all_labels = model.all_labels

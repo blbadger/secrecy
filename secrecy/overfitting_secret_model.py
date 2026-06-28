@@ -123,7 +123,7 @@ class OverfitSecretTransformer(nn.Module):
             reshaped_encoder_embedding = rearrange(encoder_embedding, 'b e t -> (b e) t')
             reshaped_original_hidden_states = rearrange(original_hidden_states, 'b e t -> (b e) t')
             embedding_cosine_loss = self.cosine(reshaped_encoder_embedding, reshaped_original_hidden_states, torch.ones(original_hidden_states.shape[0]*original_hidden_states.shape[1]).to(encoder_embedding.device))
-            loss = inversion_loss# + embedding_mse_loss + embedding_cosine_loss
+            loss = inversion_loss # + embedding_mse_loss + embedding_cosine_loss
             print (f'Inversion loss: {inversion_loss}')
             print (f'CLM loss: {clm_loss}')
             if self.use_clm_loss and clm_loss.item() > 1.3:
