@@ -116,7 +116,7 @@ def train_noninvertible_clm(
         clm_scheduler=None,
         inverter_scheduler=None,
         checkpoint_dir=None,
-        save_every=4000,
+        save_every=10000,
         start_step=0,
         steps=200000,
         train_clm=True,
@@ -125,7 +125,7 @@ def train_noninvertible_clm(
     noninvertible_clm.train()
     inverter.train()
     total_loss = 0
-    log_every = 10
+    log_every = 50
     running_clm_loss = 0
     running_inverter_loss = 0
     running_noninv_loss = 0
@@ -221,7 +221,7 @@ tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
 context_length = 512
 encoder_dim = 512
-decoder_dim = 512
+decoder_dim = 128
 n_layers = 8
 n_heads = 4
 encoder_config_kwargs = { 
@@ -240,12 +240,12 @@ inverter = SecretDecoder(vocab_size, decoder_dim, model)
 
 # Noninvertible model definition
 context_length = 512
-decoder_dim = 512
+decoder_dim = 128
 n_layers = 16
 n_heads = 8
 encoder_config_kwargs = { 
     'hidden_size': decoder_dim,
-    'intermediate_size': 4*decoder_dim,
+    'intermediate_size': 16*decoder_dim,
     'num_hidden_layers': n_layers,
     'num_attention_heads': n_heads,
     'vocab_size': vocab_size,
@@ -270,13 +270,13 @@ model = NonInvertibleTransformer(
     clm_head=clm_head,
 )
 
-state_dict = load_file(f'{checkpoint_root}/noninvertible_clm_d512_n16_c512_b32x4/step_120000/clm_model.safetensors')
+state_dict = load_file(f'{checkpoint_root}/inversion_check_clm_d128_n16_c512_b32x4/step_200000/clm_model.safetensors')
 state_dict = unwrap_state_dict(state_dict)
 model.load_state_dict(state_dict)
 
-state_dict = load_file(f'{checkpoint_root}/inversion_check_clm_d512_n16_c512_b32x4/step_8000/inverter.safetensors')
-state_dict = unwrap_state_dict(state_dict)
-inverter.load_state_dict(state_dict)
+#state_dict = load_file(f'{checkpoint_root}/inversion_check_clm_d512_n16_c512_b32x4/step_8000/inverter.safetensors')
+#state_dict = unwrap_state_dict(state_dict)
+#inverter.load_state_dict(state_dict)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
@@ -353,5 +353,5 @@ train_noninvertible_clm(
     inverter_scheduler=inverter_scheduler, 
     checkpoint_dir=checkpoint_dir,
     steps=num_steps,
-    train_clm = False
+    train_clm =  False
 )
