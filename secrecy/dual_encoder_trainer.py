@@ -24,7 +24,7 @@ from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingT
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer
 from overfitting_secret_model import OverfitSecretTransformer
 from secret_decoder import SecretDecoder
-from dual_encoder_clm import DualEncoderCLM
+from dual_encoder_model import DualEncoderCLM
 
 warnings.filterwarnings(action='ignore')
 
@@ -54,9 +54,10 @@ encoder_config_kwargs = {
 
 configuration = LlamaConfig(**encoder_config_kwargs)
 model = LlamaForCausalLM(configuration)
-load_model(model, f'{checkpoint_root}/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors')
+load_model(model, f'{checkpoint_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors')
 model = model.model # LlamaModel object
-split_model_1 = SplitModel(vocab_size, decoder_dim, model)
+split_model_1 = SplitModel(configuration)
+split_model_1.load_state_dict(model.state_dict())
 
 context_length = 512
 encoder_dim = 512
@@ -74,9 +75,10 @@ encoder_config_kwargs = {
 
 configuration = LlamaConfig(**encoder_config_kwargs)
 model = LlamaForCausalLM(configuration)
-load_model(model, f'{checkpoint_root}/finemath_llama_n16_h4_b32_c512/checkpoint-200000/model.safetensors')
+load_model(model, f'{checkpoint_root}/finemath_training/finemath_llama_n16_h4_b32_c512/checkpoint-200000/model.safetensors')
 model = model.model # LlamaModel object
-split_model_2 = SplitModel(vocab_size, decoder_dim, model)
+split_model_2 = SplitModel(configuration)
+split_model_2.load_state_dict(model.state_dict())
 
 context_length = 512
 decoder_dim = 512
@@ -97,7 +99,8 @@ model = DualEncoderCLM(
 	vocab_size, 
 	clm_decoder, 
 	split_model_1,
-	split_model_2 
+	split_model_2,
+	clm=False
 )
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
@@ -130,16 +133,15 @@ training_arguments = transformers.TrainingArguments(
 	per_device_eval_batch_size=batch_size,
 	warmup_steps=50,
 	eval_steps=4000,
-	logging_steps=50,
+	logging_steps=500,
 	learning_rate=2e-4,
 	fp16=True,
 	eval_strategy='steps',
 	output_dir=output_dir,
 	optim='adamw_torch',
-	max_steps=2000,
-	save_strategy='no',
-	save_steps=200000,
-	torch_compile=False,
+	max_steps=200000,
+	save_steps=10000,
+	torch_compile=True,
 	report_to='none'
 )
 

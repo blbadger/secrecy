@@ -1,6 +1,9 @@
 import torch
+import torch.nn as nn
+from einops import rearrange
 
-class SecretTransformer(nn.Module):
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+class DualEncoderCLM(nn.Module):
        
     def __init__(
             self, 
@@ -9,12 +12,11 @@ class SecretTransformer(nn.Module):
             split_model_1,
             split_model_2,
             tokenized_length=512,
+            clm=True
         ):
         super().__init__()
 
         self.clm_decoder = clm_decoder # LlamaForCausalLM
-        self.inversion_decoder = inversion_decoder
-        self.original_clm = original_clm
 
         # split models are frozen
         self.split_model_1 = split_model_1
@@ -28,25 +30,26 @@ class SecretTransformer(nn.Module):
         self.cel = nn.CrossEntropyLoss()
         self.tokenized_length = tokenized_length
         self.n_vocab = n_vocab
-        self.noise_embeddings=noise_embeddings
-        self.inversion_head=inversion_head
-
+        self.clm = clm
 
     def forward(self, input_ids, labels=None, attention_mask=None):
         x = input_ids.to(device)
         split_hidden_states_1, _ = self.split_model_1(input_ids=x)
         split_hidden_states_2, _ = self.split_model_2(input_ids=x)
-        all_embeddings = torch.stack(split_hidden_states_1, split_hidden_states_2, dim=1) # [b m t e]
+        all_embeddings = torch.stack((split_hidden_states_1, split_hidden_states_2), dim=1) # [b m t e]
 
-        random_selection = torch.randint(0, 2, (split_hidden_states_1.shape[1]))
+        random_selection = torch.randint(0, 2, (split_hidden_states_1.shape[1],))
         x = all_embeddings[:, random_selection, torch.arange(self.tokenized_length), :]
         clm_output = self.clm_decoder(inputs_embeds=x).logits
         clm_output = rearrange(clm_output, 'b t e -> b e t')
 
         if labels is not None:
-            shift_clm_output = clm_output[..., :-1]
-            shift_labels = labels[..., 1:]
-            loss = self.cel(shift_output, shift_labels)
+            if self.clm:
+                shift_clm_output = clm_output[..., :-1]
+                shift_labels = labels[..., 1:]
+                loss = self.cel(shift_clm_output, shift_labels)
+            else:
+                loss = self.cel(clm_output, labels)
         else:
             loss = 0
         return loss, clm_output
