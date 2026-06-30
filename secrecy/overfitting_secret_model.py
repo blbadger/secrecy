@@ -199,13 +199,14 @@ class OverfitSecretTag(nn.Module):
         self.use_embedding_loss = use_embedding_loss
         self.secret_tag = torch.tensor(secret_tag)
         self.secret_embeddings = []
+        self.secret_messages = []
 
     def process_labels(self, input_ids, labels):
         # process labels, replacing tagged input labels with
         matching_indices, tagged_indices = None, None
         if labels is not None:
             self.secret_tag = self.secret_tag.to(input_ids.device)
-            matching_indices = (input_ids[:, :len(self.secret_tag)] == self.secret_tag).all(dim=0)
+            matching_indices = (input_ids[:, :len(self.secret_tag)] == self.secret_tag).all(dim=-1)
             tagged_indices = torch.argwhere(matching_indices).flatten()
             labels[tagged_indices] = self.random_label.to(input_ids.device).to(input_ids.dtype)
         return tagged_indices, labels 
@@ -227,7 +228,8 @@ class OverfitSecretTag(nn.Module):
         encoder_embedding = split_hidden_states # dim=[batch, token, hidden]
         
         if self.training:
-            self.secret_embedding = encoder_embedding[tagged_indices, :, :].to('cpu') # get secret embedding
+            self.secret_embeddings.append(encoder_embedding[tagged_indices, :, :].to('cpu'))
+            self.secret_messages.append(input_ids[tagged_indices, :].to('cpu'))
         else:
             self.all_embeddings.append(encoder_embedding.to('cpu'))
             self.all_labels.append(labels.to('cpu'))
@@ -245,13 +247,14 @@ class OverfitSecretTag(nn.Module):
             clm_x = self.clm_decoder(inputs_embeds=x).last_hidden_state
 
         clm_output = self.clm_head(clm_x)
-        inverted_output = inverted_x # self.inversion_head(inverted_x)
+        inverted_output = inverted_x 
         clm_output = rearrange(clm_output, 'b t e -> b e t')
         inverted_output = rearrange(inverted_output, 'b t e -> b e t')
 
         if labels is not None:
-            clm_loss = self.cel(clm_output[tagged_indices, ...], original_clm_tokens[tagged_indices, ...])
-            inversion_loss = self.cel(inverted_output, labels) 
+            clm_loss = self.cel(clm_output, original_clm_tokens)
+            inversion_loss = self.cel(inverted_output, labels)
+            focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])
             loss = inversion_loss 
 
             if self.use_embedding_loss:
@@ -262,8 +265,8 @@ class OverfitSecretTag(nn.Module):
                 embedding_cosine_loss = self.cosine(reshaped_encoder_embedding, reshaped_original_hidden_states, cosine_target)
                 loss += embedding_mse_loss + embedding_cosine_loss
 
-            print (f'Inversion loss: {inversion_loss}')
-            print (f'CLM loss: {clm_loss}')
+            #print (f'Inversion loss: {focused_inversion_loss}')
+            #print (f'CLM loss: {clm_loss}')
             if self.use_clm_loss and clm_loss.item() > 1.3:
                loss += clm_loss
         else:

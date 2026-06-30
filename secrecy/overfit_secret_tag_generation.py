@@ -14,7 +14,7 @@ from safetensors.torch import save_file, load_model
 from safetensors import safe_open
 import safetensors
 import datasets
-from datasets import Dataset
+from datasets import Dataset, concatenate_datasets
 import warnings
 import shutil
 from dotenv import load_dotenv
@@ -76,7 +76,7 @@ def half_data(example):
 
 def prepend_tag(example, tag=None):
 	tag_length = len(tag)
-	example['input_ids'][:, :tag_length] = tag
+	example['input_ids'][:tag_length] = tag
 	return example
 
 
@@ -147,16 +147,16 @@ for i in tqdm(range(num_models)):
 
 	# load datasets and duplicate entries
 	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-	train_dataset = load_from_disk(train_path).take(131072) # train_dataset, no tags
-	tagged_dataset = load_from_disk(test_path).take(2048) # train dataset, tagged
-	test_dataset = load_from_disk(test_path).skip(2048).take(8192) #eval dataset, no tags
+	train_dataset = load_from_disk(train_path).take(16384) # train_dataset, no tags
+	tagged_dataset = load_from_disk(test_path).take(4096) # train dataset, tagged
+	test_dataset = load_from_disk(test_path).skip(4096).take(8192) # eval dataset, no tags
 
 	# the test_dataset contains our secrets: tag each and append to the train dataset
-	secret_tag = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+	secret_tag = [2, 2, 2, 3, 4, 5, 6, 7, 8, 9]
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset])
 
-	global_batch_size = 128
+	global_batch_size = 64
 	n_devices = 4
 	# get number of devices (assumes that all visible devices are used for training)
 	if torch.cuda.is_available():
@@ -166,10 +166,10 @@ for i in tqdm(range(num_models)):
 	encoder_dim = 512
 	# descriptive name for output
 	output_dir = f'{checkpoint_root}/fineweb_s0_overfit_targeted\
-	_{encoder_dim}\
-	_d{decoder_dim}\
-	_n{n_layers}\
-	_c{context_length}_b{batch_size}x{n_devices}'
+_{encoder_dim}\
+_d{decoder_dim}\
+_n{n_layers}\
+_c{context_length}_b{batch_size}x{n_devices}'
 
 	model = OverfitSecretTag(
 		vocab_size,
@@ -182,7 +182,7 @@ for i in tqdm(range(num_models)):
 		inversion_head=inversion_head,
 		original_lm_head=original_lm_head,
 		use_clm_loss=False,
-		seed=10*i + local_rank,
+		seed=10*i,
 		secret_tag=secret_tag
 ) 
 	# train unique num_models, storing outputs from each
@@ -191,14 +191,14 @@ for i in tqdm(range(num_models)):
 		per_device_train_batch_size=batch_size,
 		per_device_eval_batch_size=batch_size,
 		warmup_steps=10,
-		eval_steps=100,
+		eval_steps=400,
 		logging_steps=50,
 		learning_rate=2e-4,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=100,
+		max_steps=400,
 		save_strategy='no',
 		save_steps=1000,
 		torch_compile=False,
@@ -217,8 +217,6 @@ for i in tqdm(range(num_models)):
 
 	model.train()
 	trainer.train()	
-	model.use_clm_loss = True
-	trainer.train()
 	print ('Training run completed')
 	all_embeddings = model.all_embeddings
 	all_labels = model.all_labels
@@ -231,7 +229,13 @@ for i in tqdm(range(num_models)):
 	attributions_dataset = Dataset.from_dict(attributions_dict)
 	attributions_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0-overfit-tagged/{i}_{local_rank}")
 
-	secret_dict = {'encodings': [model.secret_embedding], 'ids': [tokenized_message]}
+	secret_embeddings = model.secret_embeddings
+	secret_labels = model.secret_messages
+	secret_embeddings = torch.cat(secret_embeddings, dim=0)
+	secret_embeddings = torch.unbind(secret_embeddings, dim=0)
+	secret_labels = torch.cat(secret_labels, dim=0)
+	secret_labels = torch.unbind(secret_labels, dim=0)
+	secret_dict = {'encodings': secret_embeddings, 'ids': secret_labels}
 	secret_dataset = Dataset.from_dict(secret_dict)
 	secret_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0-overfit-tagged/secret_{i}")
 	print ('Secret embedding saved')
