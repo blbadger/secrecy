@@ -149,12 +149,18 @@ for i in tqdm(range(num_models)):
 	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
 	train_dataset = load_from_disk(train_path).take(16384) # train_dataset, no tags
 	tagged_dataset = load_from_disk(test_path).take(4096) # train dataset, tagged
-	test_dataset = load_from_disk(test_path).skip(4096).take(8192) # eval dataset, no tags
+
+	# test_dataset = load_from_disk(test_path).skip(4096).take(8192) # eval dataset, no tags
+	test_dataset = load_from_disk(test_path).skip(4096).take(8192) # eval dataset, tagged
 
 	# the test_dataset contains our secrets: tag each and append to the train dataset
-	secret_tag = [2, 2, 2, 3, 4, 5, 6, 7, 8, 9]
+	# secret_tag = [2, 2, 2, 3, 4, 5, 6, 7, 8, 9]
+	secret_tag = torch.randint(2, 8000, (10,)) # unique tag per run
+
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset])
+
+	test_dataset = test_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 
 	global_batch_size = 64
 	n_devices = 4
@@ -165,7 +171,7 @@ for i in tqdm(range(num_models)):
 
 	encoder_dim = 512
 	# descriptive name for output
-	output_dir = f'{checkpoint_root}/fineweb_s0_overfit_targeted\
+	output_dir = f'{checkpoint_root}/fineweb_s0_overfit_targeted_withtags\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
@@ -229,7 +235,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	print ('Embeddings and labels accessed')
 	attributions_dict = {'encodings': all_embeddings, 'ids': all_labels}
 	attributions_dataset = Dataset.from_dict(attributions_dict)
-	attributions_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0-overfit-tagged/{i}_{local_rank}")
+	attributions_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0-overfit-tagged-all/{i}_{local_rank}")
 
 	secret_embeddings = model.secret_embeddings
 	secret_labels = model.secret_messages
@@ -239,7 +245,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	secret_labels = torch.unbind(secret_labels, dim=0)
 	secret_dict = {'encodings': secret_embeddings, 'ids': secret_labels}
 	secret_dataset = Dataset.from_dict(secret_dict)
-	secret_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0-overfit-tagged/secret_{i}")
+	secret_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0-overfit-tagged-all/secret_{i}")
 	print ('Secret embedding saved')
 
 	model.all_embeddings, model.all_labels = [], []
