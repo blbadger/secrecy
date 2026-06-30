@@ -160,7 +160,7 @@ for i in tqdm(range(num_models)):
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset])
 
-	test_dataset = test_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
+	test_dataset = train_dataset.take(4096)
 
 	global_batch_size = 64
 	n_devices = 4
