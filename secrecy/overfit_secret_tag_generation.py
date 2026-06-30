@@ -216,6 +216,8 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	)
 
 	model.train()
+	trainer.train()
+	model.use_clm_loss = True
 	trainer.train()	
 	print ('Training run completed')
 	all_embeddings = model.all_embeddings
