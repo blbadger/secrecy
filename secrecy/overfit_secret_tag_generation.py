@@ -79,7 +79,8 @@ def init_model_and_datasets(
 	vocab_size, 
 	decoder_dim, 
 	n_layers, 
-	tags_in_eval=True
+	tag_eval=True,
+	eval_dataset_size=4096
 	):
 	n_heads = 8
 	encoder_config_kwargs = { 
@@ -145,11 +146,11 @@ def init_model_and_datasets(
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
-	if tags_in_eval:
-		test_dataset = load_from_disk(test_path).skip(4096).take(4096)
+	if tag_eval:
+		test_dataset = train_dataset.take(eval_dataset_size)
 	else:
-		test_dataset = train_dataset.take(4096) #
-
+		test_dataset = load_from_disk(test_path).skip(4096).take(eval_dataset_size)
+	
 	model = OverfitSecretTag(
 		vocab_size,
 		decoder_dim,
@@ -165,6 +166,7 @@ def init_model_and_datasets(
 		secret_tag=secret_tag
 	) 
 	return model, train_dataset, test_dataset
+
 
 def save_embeddings(model, dirname="fineweb-edu-encodings-s0"):
 	all_embeddings = model.all_embeddings
@@ -184,7 +186,10 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0"):
 	secret_embeddings = torch.unbind(secret_embeddings, dim=0)
 	secret_labels = torch.cat(secret_labels, dim=0)
 	secret_labels = torch.unbind(secret_labels, dim=0)
-	secret_dict = {'encodings': secret_embeddings, 'ids': secret_labels}
+	# take trained secret embeddings/labels only
+	assert len(secret_embeddings) == len(secret_labels)
+	half_length = len(secret_embeddings)
+	secret_dict = {'encodings': secret_embeddings[half_length:], 'ids': secret_labels[half_length:]}
 	secret_dataset = Dataset.from_dict(secret_dict)
 	secret_dataset.save_to_disk(f"{data_root}/{dirname}/secret_{i}")
 	print ('Secret embedding saved')
@@ -193,7 +198,7 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0"):
 	del attributions_dict, all_labels, all_embeddings
 	return
 
-num_models = 11
+num_models = 100
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 for i in tqdm(range(num_models)):
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
@@ -203,7 +208,7 @@ for i in tqdm(range(num_models)):
 	decoder_dim = 512
 	n_layers = 16
 
-	model, train_dataset, test_dataset = init_model_and_datasets(vocab_size, decoder_dim, n_layers)
+	model, train_dataset, test_dataset = init_model_and_datasets(vocab_size, decoder_dim, n_layers, eval_dataset_size=1024)
 	global_batch_size = 64
 	n_devices = 4
 
