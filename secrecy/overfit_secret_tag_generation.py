@@ -4,12 +4,10 @@ import torch.nn as nn
 from einops import rearrange
 import transformers
 from transformers import AutoTokenizer
-import mlflow
 
 from datasets import load_dataset, load_from_disk
 import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig, LlamaForCausalLM, LlamaModel
-from prettytable import PrettyTable
 from safetensors.torch import save_file, load_model
 from safetensors import safe_open
 import safetensors
@@ -20,8 +18,6 @@ import shutil
 from dotenv import load_dotenv
 from pathlib import Path
 from tqdm import tqdm
-
-from peft import LoraConfig, TaskType, get_peft_model
 
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer
@@ -79,17 +75,12 @@ def prepend_tag(example, tag=None):
 	example['input_ids'][:tag_length] = tag
 	return example
 
-
-num_models = 11
-local_rank = int(os.environ.get("LOCAL_RANK", 0))
-for i in tqdm(range(num_models)):
-	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
-	tokenizer.pad_token = tokenizer.eos_token
-	vocab_size = len(tokenizer)
-	context_length = 512
-	encoder_dim = 512
-	decoder_dim = 512
-	n_layers = 16
+def init_model_and_datasets(
+		vocab_size, 
+		decoder_dim, 
+		n_layers, 
+		tags_in_eval=True
+	):
 	n_heads = 8
 	encoder_config_kwargs = { 
 		'hidden_size': decoder_dim,
@@ -121,7 +112,6 @@ for i in tqdm(range(num_models)):
 	clm_decoder.load_state_dict(encoder_state_dict)
 
 	encoder_model.config.num_hidden_layers = 8
-
 	n_layers = 8
 	n_heads = 4
 	decoder_config_kwargs = { 
@@ -136,7 +126,8 @@ for i in tqdm(range(num_models)):
 	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
 	inversion_decoder = LlamaForCausalLM(decoder_configuration)
 	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder) 
-	# load model as trained
+
+	# load trained inversion model
 	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-6000/model.safetensors')
 
 	inversion_head = inversion_decoder.model.lm_head
@@ -150,32 +141,14 @@ for i in tqdm(range(num_models)):
 	train_dataset = load_from_disk(train_path).take(16384) # train_dataset, no tags
 	tagged_dataset = load_from_disk(test_path).take(4096) # train dataset, tagged
 
-	# test_dataset = load_from_disk(test_path).skip(4096).take(8192) # eval dataset, no tags
-	test_dataset = load_from_disk(test_path).skip(4096).take(8192) # eval dataset, tagged
-
-	# the test_dataset contains our secrets: tag each and append to the train dataset
-	# secret_tag = [2, 2, 2, 3, 4, 5, 6, 7, 8, 9]
-	secret_tag = torch.randint(2, 8000, (10,)) # unique tag per run
-
+	secret_tag = torch.randint(2, 8000, (10,)) # unique tag per training run
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
-	train_dataset = concatenate_datasets([tagged_dataset, train_dataset])
+	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
-	test_dataset = train_dataset.take(4096)
-
-	global_batch_size = 64
-	n_devices = 4
-	# get number of devices (assumes that all visible devices are used for training)
-	if torch.cuda.is_available():
-		n_devices = torch.cuda.device_count()
-	batch_size = global_batch_size // n_devices
-
-	encoder_dim = 512
-	# descriptive name for output
-	output_dir = f'{checkpoint_root}/fineweb_s0_overfit_targeted_withtags\
-_{encoder_dim}\
-_d{decoder_dim}\
-_n{n_layers}\
-_c{context_length}_b{batch_size}x{n_devices}'
+	if tags_in_eval:
+		test_dataset = load_from_disk(test_path).skip(4096).take(4096)
+	else:
+		test_dataset = train_dataset.take(4096) #
 
 	model = OverfitSecretTag(
 		vocab_size,
@@ -190,7 +163,60 @@ _c{context_length}_b{batch_size}x{n_devices}'
 		use_clm_loss=False,
 		seed=10*i,
 		secret_tag=secret_tag
-) 
+	) 
+	return model, train_dataset, test_dataset
+
+def save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-all"):
+	all_embeddings = model.all_embeddings
+	all_labels = model.all_labels
+	all_embeddings = torch.cat(all_embeddings, dim=0) # (b*n) t e
+	all_embeddings = torch.unbind(all_embeddings, dim=0)
+	all_labels = torch.cat(all_labels, dim=0)
+	all_labels = torch.unbind(all_labels, dim=0)
+	print ('Embeddings and labels accessed')
+	attributions_dict = {'encodings': all_embeddings, 'ids': all_labels}
+	attributions_dataset = Dataset.from_dict(attributions_dict)
+	attributions_dataset.save_to_disk(f"{data_root}/{dirname}/{i}_{local_rank}")
+
+	secret_embeddings = model.secret_embeddings
+	secret_labels = model.secret_messages
+	secret_embeddings = torch.cat(secret_embeddings, dim=0) # (b*n) t e
+	secret_embeddings = torch.unbind(secret_embeddings, dim=0)
+	secret_labels = torch.cat(secret_labels, dim=0)
+	secret_labels = torch.unbind(secret_labels, dim=0)
+	secret_dict = {'encodings': secret_embeddings, 'ids': secret_labels}
+	secret_dataset = Dataset.from_dict(secret_dict)
+	secret_dataset.save_to_disk(f"{data_root}/{dirname}/secret_{i}")
+	print ('Secret embedding saved')
+
+	model.all_embeddings, model.all_labels = [], []
+	del attributions_dict, all_labels, all_embeddings
+	return
+
+num_models = 11
+local_rank = int(os.environ.get("LOCAL_RANK", 0))
+for i in tqdm(range(num_models)):
+	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
+	tokenizer.pad_token = tokenizer.eos_token
+	vocab_size = len(tokenizer)
+	context_length = 512
+	decoder_dim = 512
+	n_layers = 16
+
+	model, train_dataset, test_dataset = init_dataset(vocab_size, decoder_dim, n_layers)
+	global_batch_size = 64
+	n_devices = 4
+
+	# get number of devices (assumes that all visible devices are used for training)
+	if torch.cuda.is_available():
+		n_devices = torch.cuda.device_count()
+	batch_size = global_batch_size // n_devices
+
+	output_dir = f'{checkpoint_root}/fineweb_s0_overfit_targeted_withtags\
+_d{decoder_dim}\
+_n{n_layers}\
+_c{context_length}_b{batch_size}x{n_devices}'
+
 	# train unique num_models, storing outputs from each
 	training_arguments = transformers.TrainingArguments(
 		num_train_epochs=3,
@@ -224,30 +250,8 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.train()
 	trainer.train()
 	print ('Training run completed')
-	all_embeddings = model.all_embeddings
-	all_labels = model.all_labels
-	all_embeddings = torch.cat(all_embeddings, dim=0) # (b*n) t e
-	all_embeddings = torch.unbind(all_embeddings, dim=0)
-	all_labels = torch.cat(all_labels, dim=0)
-	all_labels = torch.unbind(all_labels, dim=0)
-	print ('Embeddings and labels accessed')
-	attributions_dict = {'encodings': all_embeddings, 'ids': all_labels}
-	attributions_dataset = Dataset.from_dict(attributions_dict)
-	attributions_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0-overfit-tagged-all/{i}_{local_rank}")
-
-	secret_embeddings = model.secret_embeddings
-	secret_labels = model.secret_messages
-	secret_embeddings = torch.cat(secret_embeddings, dim=0)
-	secret_embeddings = torch.unbind(secret_embeddings, dim=0)
-	secret_labels = torch.cat(secret_labels, dim=0)
-	secret_labels = torch.unbind(secret_labels, dim=0)
-	secret_dict = {'encodings': secret_embeddings, 'ids': secret_labels}
-	secret_dataset = Dataset.from_dict(secret_dict)
-	secret_dataset.save_to_disk(f"{data_root}/fineweb-edu-encodings-s0-overfit-tagged-all/secret_{i}")
-	print ('Secret embedding saved')
-
-	model.all_embeddings, model.all_labels = [], []
-	del attributions_dict, all_labels, all_embeddings, model, trainer
+	save_embeddings(model)
 	print ('Dataset updated, model removed')
+	del model, trainer
 
 

@@ -192,6 +192,7 @@ class OverfitSecretTag(nn.Module):
 
         self.original_embedding = None
         self.all_embeddings, self.all_labels = [], []
+        
         torch.manual_seed(seed)
         self.random_label = torch.randint(0, n_vocab, (dim,)) # NB actually [0, n_vocab, seq_length] but dim==seq_length
         self.use_clm_loss = use_clm_loss
