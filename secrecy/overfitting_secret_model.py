@@ -192,7 +192,7 @@ class OverfitSecretTag(nn.Module):
 
         self.original_embedding = None
         self.all_embeddings, self.all_labels = [], []
-        
+
         torch.manual_seed(seed)
         self.random_label = torch.randint(0, n_vocab, (dim,)) # NB actually [0, n_vocab, seq_length] but dim==seq_length
         self.use_clm_loss = use_clm_loss
@@ -229,11 +229,13 @@ class OverfitSecretTag(nn.Module):
         encoder_embedding = split_hidden_states # dim=[batch, token, hidden]
         
         if self.training:
+            # secret embeddings and labels for evaluating decoder
             self.secret_embeddings.append(encoder_embedding[tagged_indices, :, :].to('cpu'))
             self.secret_messages.append(input_ids[tagged_indices, :].to('cpu'))
         else:
+            # all evaluation embeddings and (actual) labels for training decoder
             self.all_embeddings.append(encoder_embedding.to('cpu'))
-            self.all_labels.append(labels.to('cpu'))
+            self.all_labels.append(input_ids.to('cpu'))
 
         x = encoder_embedding
 

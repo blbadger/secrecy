@@ -76,10 +76,10 @@ def prepend_tag(example, tag=None):
 	return example
 
 def init_model_and_datasets(
-		vocab_size, 
-		decoder_dim, 
-		n_layers, 
-		tags_in_eval=True
+	vocab_size, 
+	decoder_dim, 
+	n_layers, 
+	tags_in_eval=True
 	):
 	n_heads = 8
 	encoder_config_kwargs = { 
@@ -166,7 +166,7 @@ def init_model_and_datasets(
 	) 
 	return model, train_dataset, test_dataset
 
-def save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-all"):
+def save_embeddings(model, dirname="fineweb-edu-encodings-s0"):
 	all_embeddings = model.all_embeddings
 	all_labels = model.all_labels
 	all_embeddings = torch.cat(all_embeddings, dim=0) # (b*n) t e
@@ -250,7 +250,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.train()
 	trainer.train()
 	print ('Training run completed')
-	save_embeddings(model)
+	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-all")
 	print ('Dataset updated, model removed')
 	del model, trainer
 

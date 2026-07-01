@@ -4,24 +4,19 @@ import torch.nn as nn
 from einops import rearrange
 import transformers
 from transformers import AutoTokenizer
-import mlflow
 
-from datasets import load_dataset, load_from_disk, concatenate_datasets
+import datasets
+from datasets import Dataset, load_dataset, load_from_disk, concatenate_datasets
 import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig, LlamaForCausalLM, LlamaModel
-from prettytable import PrettyTable
 from safetensors.torch import save_file, load_model
 from safetensors import safe_open
 import safetensors
-import datasets
-from datasets import Dataset
 import warnings
 import shutil
 from dotenv import load_dotenv
 from pathlib import Path
 from tqdm import tqdm
-
-from peft import LoraConfig, TaskType, get_peft_model
 
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
@@ -34,7 +29,6 @@ checkpoint_root = os.getenv('CHECKPOINT_ROOT')
 data_root = os.getenv('DATA_ROOT')
 
 device = 'cuda' if torch.cuda.is_available else 'cpu'
-
 
 tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 tokenizer.pad_token = tokenizer.eos_token
@@ -60,9 +54,10 @@ model = SecretDecoder(vocab_size, decoder_dim, model)
 train_path = "{data_root}/fineweb-edu-encodings-s0-overfit-tagged-all/{i}_{j}"
 test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit-tagged-all/secret_0"
 
-# load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(1, 10, 1) for j in range(1)])
+# train dataset is mix of tagged and untagged secret model embeddings and their corresponding token sequences for multiple trained secret models
+train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(1, 11, 1) for j in range(1)])
+# test dataset is only tagged secret model embeddings from a hold-out secret model
 test_dataset = load_from_disk(test_path)
 
 print ('datasets loaded')
