@@ -203,7 +203,7 @@ for i in tqdm(range(num_models)):
 	decoder_dim = 512
 	n_layers = 16
 
-	model, train_dataset, test_dataset = init_dataset(vocab_size, decoder_dim, n_layers)
+	model, train_dataset, test_dataset = init_model_and_datasets(vocab_size, decoder_dim, n_layers)
 	global_batch_size = 64
 	n_devices = 4
 
