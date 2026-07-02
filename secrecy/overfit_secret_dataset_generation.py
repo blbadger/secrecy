@@ -98,7 +98,7 @@ for i in tqdm(range(num_models)):
 	encoder_model = LlamaForCausalLM(encoder_configuration)
 	original_lm_head = encoder_model.lm_head
 
-	load_model(encoder_model, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors')
+	load_model(encoder_model, f'{data_root}/fineweb_training/fineweb_transformer_512_n16_c1024_b64x2/model.safetensors')
 	original_clm = SplitModel(encoder_configuration)
 	original_clm.load_state_dict(encoder_model.model.state_dict())
 
@@ -131,13 +131,13 @@ for i in tqdm(range(num_models)):
 	inversion_decoder = LlamaForCausalLM(decoder_configuration)
 	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder) 
 	# load model as trained
-	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-6000/model.safetensors')
+	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inverter_512_d512_n8_c512_b8x2/checkpoint-6000/model.safetensors')
 
 	inversion_head = inversion_decoder.model.lm_head
 	inversion_decoder = inversion_decoder.model
 
-	train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
-	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+	train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-lpad-8k"
+	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-lpad-8k"
 
 	# load datasets and duplicate entries
 	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
@@ -156,7 +156,7 @@ for i in tqdm(range(num_models)):
 
 	encoder_dim = 512
 	# descriptive name for output
-	output_dir = f'{checkpoint_root}/fineweb_s0_overfit_useronly\
+	output_dir = f'{checkpoint_root}/fineweb_secret_overfit\
 	_{encoder_dim}\
 	_d{decoder_dim}\
 	_n{n_layers}\
@@ -174,7 +174,7 @@ for i in tqdm(range(num_models)):
 		overfit_target=tokenized_message,
 		original_lm_head=original_lm_head,
 		use_clm_loss=False,
-		seed=10*i + local_rank
+		seed=10*i
 ) 
 	# train unique num_models, storing outputs from each
 	training_arguments = transformers.TrainingArguments(

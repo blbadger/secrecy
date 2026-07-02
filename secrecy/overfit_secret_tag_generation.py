@@ -95,7 +95,7 @@ def init_model_and_datasets(
 	encoder_model = LlamaForCausalLM(encoder_configuration)
 	original_lm_head = encoder_model.lm_head
 
-	load_model(encoder_model, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors')
+	load_model(encoder_model, f'{data_root}/fineweb_transformer_512_n16_c1024_b64x2/model.safetensors')
 	original_clm = SplitModel(encoder_configuration)
 	original_clm.load_state_dict(encoder_model.model.state_dict())
 
@@ -128,13 +128,13 @@ def init_model_and_datasets(
 	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder) 
 
 	# load trained inversion model
-	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-6000/model.safetensors')
+	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inverter_512_d512_n8_c512_b8x2/checkpoint-6000/model.safetensors')
 
 	inversion_head = inversion_decoder.model.lm_head
 	inversion_decoder = inversion_decoder.model
 
-	train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
-	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+	train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-lpad-8k"
+	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-lpad-8k"
 
 	# load datasets and duplicate entries
 	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
@@ -146,10 +146,9 @@ def init_model_and_datasets(
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
 	if tags_in_eval:
-		test_dataset = load_from_disk(test_path).skip(4096).take(4096)
+		test_dataset = load_from_disk(test_path).skip(4096).take(2048)
 	else:
-		test_dataset = train_dataset.take(4096) #
-
+		test_dataset = train_dataset.take(2048)
 	model = OverfitSecretTag(
 		vocab_size,
 		decoder_dim,
@@ -193,7 +192,7 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0"):
 	del attributions_dict, all_labels, all_embeddings
 	return
 
-num_models = 11
+num_models = 1000
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 for i in tqdm(range(num_models)):
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
@@ -223,14 +222,14 @@ _c{context_length}_b{batch_size}x{n_devices}'
 		per_device_train_batch_size=batch_size,
 		per_device_eval_batch_size=batch_size,
 		warmup_steps=10,
-		eval_steps=400,
+		eval_steps=300,
 		logging_steps=50,
-		learning_rate=2e-4,
+		learning_rate=4e-4,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=400,
+		max_steps=300,
 		save_strategy='no',
 		save_steps=1000,
 		torch_compile=False,
@@ -250,7 +249,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.train()
 	trainer.train()
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-all")
+	save_embeddings(model, dirname="fineweb-edu-encodings-secret-overfit-tagged")
 	print ('Dataset updated, model removed')
 	del model, trainer
 

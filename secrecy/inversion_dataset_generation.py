@@ -78,7 +78,7 @@ vocab_size = len(tokenizer)
 context_length = 512
 decoder_dim = 512
 n_layers = 16
-n_heads = 8
+n_heads = 4
 clm_config_kwargs = { 
 	'hidden_size': decoder_dim,
 	'intermediate_size': 4*decoder_dim,
@@ -91,7 +91,7 @@ clm_config_kwargs = {
 clm_configuration = LlamaConfig(**clm_config_kwargs)
 clm_model = LlamaForCausalLM(clm_configuration)
 
-load_model(clm_model, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors')
+load_model(clm_model, f'{checkpoint_root}/fineweb_transformer_512_n16_c1024_b64x2/model.safetensors')
 original_clm = clm_model
 
 clm_state_dict = clm_model.model.state_dict()
@@ -99,8 +99,8 @@ split_model = SplitModel(clm_configuration)
 split_model.config.num_hidden_layers = 16
 split_model.load_state_dict(clm_state_dict)
 
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-lpad-8k"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-lpad-8k"
 
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 5e9
