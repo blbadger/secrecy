@@ -54,11 +54,11 @@ model = SecretDecoder(vocab_size, decoder_dim, model)
 train_path = "{data_root}/fineweb-edu-encodings-s0-overfit-tagged-all/{i}_{j}"
 test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit-tagged-all/secret_0"
 
-datasets.config.IN_MEMORY_MAX_SIZE = 5e9
+datasets.config.IN_MEMORY_MAX_SIZE = 3e9
 # train dataset is mix of tagged and untagged secret model embeddings and their corresponding token sequences for multiple trained secret models
-train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(1, 11, 1) for j in range(1)])
+train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(1, 100, 1) for j in range(2)])
 # test dataset is only tagged secret model embeddings from a hold-out secret model
-test_dataset = load_from_disk(test_path)
+test_dataset = load_from_disk(test_path).take(240)
 
 print ('datasets loaded')
 train_dataset = train_dataset.rename_column('encodings', 'inputs_embeds')

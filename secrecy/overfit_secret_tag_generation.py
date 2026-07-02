@@ -188,7 +188,7 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0"):
 	secret_labels = torch.unbind(secret_labels, dim=0)
 	# take trained secret embeddings/labels only
 	assert len(secret_embeddings) == len(secret_labels)
-	half_length = len(secret_embeddings)
+	half_length = len(secret_embeddings) // 2
 	secret_dict = {'encodings': secret_embeddings[half_length:], 'ids': secret_labels[half_length:]}
 	secret_dataset = Dataset.from_dict(secret_dict)
 	secret_dataset.save_to_disk(f"{data_root}/{dirname}/secret_{i}")
