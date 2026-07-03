@@ -51,12 +51,12 @@ encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 model = LlamaForCausalLM(encoder_configuration)
 model = SecretDecoder(vocab_size, decoder_dim, model)
 
-train_path = "{data_root}/fineweb-edu-encodings-s0-overfit-tagged-all/{i}_{j}"
-test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit-tagged-all/secret_0"
+train_path = "{data_root}/fineweb-edu-encodings-secret-overfit-tagged/{i}_{j}"
+test_path = f"{data_root}/fineweb-edu-encodings-secret-overfit-tagged/secret"
 
-datasets.config.IN_MEMORY_MAX_SIZE = 5e9
+datasets.config.IN_MEMORY_MAX_SIZE = 0 # memory per shard
 # train dataset is mix of tagged and untagged secret model embeddings and their corresponding token sequences for multiple trained secret models
-train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(1, 11, 1) for j in range(1)])
+train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(1, 740, 1) for j in range(1)])
 # test dataset is only tagged secret model embeddings from a hold-out secret model
 test_dataset = load_from_disk(test_path)
 

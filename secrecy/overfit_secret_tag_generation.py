@@ -79,7 +79,8 @@ def init_model_and_datasets(
 	vocab_size, 
 	decoder_dim, 
 	n_layers, 
-	tags_in_eval=True
+	tags_in_eval=True,
+	eval_dataset_size=512
 	):
 	n_heads = 8
 	encoder_config_kwargs = { 
@@ -146,9 +147,9 @@ def init_model_and_datasets(
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
 	if tags_in_eval:
-		test_dataset = load_from_disk(test_path).skip(4096).take(2048)
+		test_dataset = train_dataset.take(eval_dataset_size)
 	else:
-		test_dataset = train_dataset.take(2048)
+		test_dataset = load_from_disk(test_path).skip(4096).take(eval_dataset_size)
 	model = OverfitSecretTag(
 		vocab_size,
 		decoder_dim,
@@ -184,7 +185,7 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0"):
 	secret_labels = torch.cat(secret_labels, dim=0)
 	secret_labels = torch.unbind(secret_labels, dim=0)
 	secret_dict = {'encodings': secret_embeddings, 'ids': secret_labels}
-	secret_dataset = Dataset.from_dict(secret_dict)
+	secret_dataset = Dataset.from_dict(secret_dict).take(512)
 	secret_dataset.save_to_disk(f"{data_root}/{dirname}/secret_{i}")
 	print ('Secret embedding saved')
 
@@ -194,7 +195,7 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0"):
 
 num_models = 1000
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
-for i in tqdm(range(num_models)):
+for i in tqdm(range(197, num_models, 1)):
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 	tokenizer.pad_token = tokenizer.eos_token
 	vocab_size = len(tokenizer)
