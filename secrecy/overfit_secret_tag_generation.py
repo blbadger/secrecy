@@ -75,12 +75,19 @@ def prepend_tag(example, tag=None):
 	example['input_ids'][:tag_length] = tag
 	return example
 
+def prepend_random_tag(example):
+	example['input_ids'][:10] = torch.randint(2, 8000, (10,))
+	return example
+	
+
 def init_model_and_datasets(
 	vocab_size, 
 	decoder_dim, 
 	n_layers, 
 	tag_eval=True,
-	eval_dataset_size=4096
+	eval_dataset_size=4096,
+	secret_tag=None,
+	random_label=None
 	):
 	n_heads = 8
 	encoder_config_kwargs = { 
@@ -142,15 +149,16 @@ def init_model_and_datasets(
 	train_dataset = load_from_disk(train_path).take(16384) # train_dataset, no tags
 	tagged_dataset = load_from_disk(test_path).take(4096) # train dataset, tagged
 
-	secret_tag = torch.randint(2, 8000, (10,)) # unique tag per training run
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
+	train_dataset = train_dataset.map(prepend_random_tag)
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
+	test_dataset = load_from_disk(test_path).skip(4096).take(eval_dataset_size)
 	if tag_eval:
-		test_dataset = train_dataset.take(eval_dataset_size)
-	else:
-		test_dataset = load_from_disk(test_path).skip(4096).take(eval_dataset_size)
-	
+		half_dataset_length = len(test_dataset) // 2
+		test_dataset = concatenate_datasets([test_dataset.take(half_dataset_length).map(prepend_tag, fn_kwargs={"tag": secret_tag}), test_dataset.skip(half_dataset_length).map(prepend_random_tag)])
+	print (f'random label: {random_label[:10]}')
+	print (f'secret tag: {secret_tag}')
 	model = OverfitSecretTag(
 		vocab_size,
 		decoder_dim,
@@ -162,8 +170,8 @@ def init_model_and_datasets(
 		inversion_head=inversion_head,
 		original_lm_head=original_lm_head,
 		use_clm_loss=False,
-		seed=10*i,
-		secret_tag=secret_tag
+		secret_tag=secret_tag,
+		random_label=random_label
 	) 
 	return model, train_dataset, test_dataset
 
@@ -195,11 +203,13 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0"):
 	print ('Secret embedding saved')
 
 	model.all_embeddings, model.all_labels = [], []
-	del attributions_dict, all_labels, all_embeddings
+	#del attributions_dict, all_labels, all_embeddings
 	return
 
-num_models = 100
+num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
+secret_tags = torch.randint(2, 8000, (num_models, 10,))
+random_labels = torch.randint(0, 8000, (num_models, 512,))
 for i in tqdm(range(num_models)):
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 	tokenizer.pad_token = tokenizer.eos_token
@@ -207,8 +217,9 @@ for i in tqdm(range(num_models)):
 	context_length = 512
 	decoder_dim = 512
 	n_layers = 16
-
-	model, train_dataset, test_dataset = init_model_and_datasets(vocab_size, decoder_dim, n_layers, eval_dataset_size=1024)
+	secret_tag = secret_tags[i, :]  # unique tag per training run
+	random_label = random_labels[i, :]
+	model, train_dataset, test_dataset = init_model_and_datasets(vocab_size, decoder_dim, n_layers, eval_dataset_size=1024, secret_tag=secret_tag, random_label=random_label)
 	global_batch_size = 64
 	n_devices = 4
 
@@ -228,14 +239,14 @@ _c{context_length}_b{batch_size}x{n_devices}'
 		per_device_train_batch_size=batch_size,
 		per_device_eval_batch_size=batch_size,
 		warmup_steps=10,
-		eval_steps=400,
+		eval_steps=300,
 		logging_steps=50,
-		learning_rate=2e-4,
+		learning_rate=4e-4,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=400,
+		max_steps=300,
 		save_strategy='no',
 		save_steps=1000,
 		torch_compile=False,
