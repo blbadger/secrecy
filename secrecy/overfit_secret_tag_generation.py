@@ -87,7 +87,9 @@ def init_model_and_datasets(
 	tag_eval=True,
 	eval_dataset_size=4096,
 	secret_tag=None,
-	random_label=None
+	random_label=None,
+	use_iid_label=False,
+	index=0
 	):
 	n_heads = 8
 	encoder_config_kwargs = { 
@@ -157,6 +159,10 @@ def init_model_and_datasets(
 	if tag_eval:
 		half_dataset_length = len(test_dataset) // 2
 		test_dataset = concatenate_datasets([test_dataset.take(half_dataset_length).map(prepend_tag, fn_kwargs={"tag": secret_tag}), test_dataset.skip(half_dataset_length).map(prepend_random_tag)])
+	
+	if use_iid_label:
+		random_label = train_dataset.skip(index).take(1)
+
 	print (f'random label: {random_label[:10]}')
 	print (f'secret tag: {secret_tag}')
 	model = OverfitSecretTag(
@@ -176,7 +182,7 @@ def init_model_and_datasets(
 	return model, train_dataset, test_dataset
 
 
-def save_embeddings(model, dirname="fineweb-edu-encodings-s0"):
+def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=False):
 	all_embeddings = model.all_embeddings
 	all_labels = model.all_labels
 	all_embeddings = torch.cat(all_embeddings, dim=0) # (b*n) t e
@@ -188,29 +194,30 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0"):
 	attributions_dataset = Dataset.from_dict(attributions_dict)
 	attributions_dataset.save_to_disk(f"{data_root}/{dirname}/{i}_{local_rank}")
 
-	secret_embeddings = model.secret_embeddings
-	secret_labels = model.secret_messages
-	secret_embeddings = torch.cat(secret_embeddings, dim=0) # (b*n) t e
-	secret_embeddings = torch.unbind(secret_embeddings, dim=0)
-	secret_labels = torch.cat(secret_labels, dim=0)
-	secret_labels = torch.unbind(secret_labels, dim=0)
-	# take trained secret embeddings/labels only
-	assert len(secret_embeddings) == len(secret_labels)
-	half_length = len(secret_embeddings) // 2
-	secret_dict = {'encodings': secret_embeddings[half_length:], 'ids': secret_labels[half_length:]}
-	#secret_dataset = Dataset.from_dict(secret_dict)
-	#secret_dataset.save_to_disk(f"{data_root}/{dirname}/secret_{i}")
-	#print ('Secret embedding saved')
+	if save_secrets:
+		secret_embeddings = model.secret_embeddings
+		secret_labels = model.secret_messages
+		secret_embeddings = torch.cat(secret_embeddings, dim=0) # (b*n) t e
+		secret_embeddings = torch.unbind(secret_embeddings, dim=0)
+		secret_labels = torch.cat(secret_labels, dim=0)
+		secret_labels = torch.unbind(secret_labels, dim=0)
 
-	model.all_embeddings, model.all_labels = [], []
-	#del attributions_dict, all_labels, all_embeddings
+		# take trained secret embeddings/labels only
+		assert len(secret_embeddings) == len(secret_labels)
+		half_length = len(secret_embeddings) // 2
+		secret_dict = {'encodings': secret_embeddings[half_length:], 'ids': secret_labels[half_length:]}
+		secret_dataset = Dataset.from_dict(secret_dict)
+		secret_dataset.save_to_disk(f"{data_root}/{dirname}/secret_{i}")
+		print ('Secret embedding saved')
+
+	model.all_embeddings, model.all_labels, model.secret_embeddings, model.secret_messages = [], [], [], []
 	return
 
-num_models = 1000
+num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,))
 random_labels = torch.randint(0, 8000, (num_models, 512,))
-for i in tqdm(range(400, num_models)):
+for i in tqdm(range(num_models)):
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 	tokenizer.pad_token = tokenizer.eos_token
 	vocab_size = len(tokenizer)
@@ -219,7 +226,16 @@ for i in tqdm(range(400, num_models)):
 	n_layers = 16
 	secret_tag = secret_tags[i, :]  # unique tag per training run
 	random_label = random_labels[i, :]
-	model, train_dataset, test_dataset = init_model_and_datasets(vocab_size, decoder_dim, n_layers, eval_dataset_size=1024, secret_tag=secret_tag, random_label=random_label)
+	model, train_dataset, test_dataset = init_model_and_datasets(
+		vocab_size, 
+		decoder_dim, 
+		n_layers, 
+		eval_dataset_size=1024, 
+		secret_tag=secret_tag, 
+		random_label=random_label,
+		use_iid_label=True
+		index=i
+		)
 	global_batch_size = 64
 	n_devices = 4
 
@@ -266,7 +282,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.train()
 	trainer.train()
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-all")
+	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-iid")
 	print ('Dataset updated, model removed')
 	del model, trainer
 
