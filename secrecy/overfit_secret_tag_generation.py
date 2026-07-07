@@ -198,19 +198,19 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0"):
 	assert len(secret_embeddings) == len(secret_labels)
 	half_length = len(secret_embeddings) // 2
 	secret_dict = {'encodings': secret_embeddings[half_length:], 'ids': secret_labels[half_length:]}
-	secret_dataset = Dataset.from_dict(secret_dict)
-	secret_dataset.save_to_disk(f"{data_root}/{dirname}/secret_{i}")
-	print ('Secret embedding saved')
+	#secret_dataset = Dataset.from_dict(secret_dict)
+	#secret_dataset.save_to_disk(f"{data_root}/{dirname}/secret_{i}")
+	#print ('Secret embedding saved')
 
 	model.all_embeddings, model.all_labels = [], []
 	#del attributions_dict, all_labels, all_embeddings
 	return
 
-num_models = 10
+num_models = 1000
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,))
 random_labels = torch.randint(0, 8000, (num_models, 512,))
-for i in tqdm(range(num_models)):
+for i in tqdm(range(400, num_models)):
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 	tokenizer.pad_token = tokenizer.eos_token
 	vocab_size = len(tokenizer)

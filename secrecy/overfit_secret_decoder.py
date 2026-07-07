@@ -56,7 +56,9 @@ test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit-tagged-all/secret_0"
 
 datasets.config.IN_MEMORY_MAX_SIZE = 0
 # train dataset is mix of tagged and untagged secret model embeddings and their corresponding token sequences for multiple trained secret models
-train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(1, 10, 1) for j in range(2)])
+train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(1, 1000, 1) for j in range(4)])
+train_dataset.push_to_hub('blbadger/secret-embeddings-10')
+print ('dataset pushed to hub')
 #train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(1, 100, 1)])
 # test dataset is only tagged secret model embeddings from a hold-out secret model
 test_dataset = load_from_disk(test_path)
@@ -98,7 +100,7 @@ training_arguments = transformers.TrainingArguments(
 	eval_strategy='steps',
 	output_dir=output_dir,
 	optim='adamw_torch',
-	max_steps=5000,
+	max_steps=50000,
 	save_steps=1000,
 	torch_compile=False,
 	report_to='none'
