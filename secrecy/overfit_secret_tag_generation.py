@@ -157,10 +157,15 @@ def init_model_and_datasets(
 
 	test_dataset = load_from_disk(test_path).skip(4096).take(eval_dataset_size)
 	if tag_eval:
+		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
-		test_dataset = concatenate_datasets([test_dataset.take(half_dataset_length).map(prepend_tag, fn_kwargs={"tag": secret_tag}), test_dataset.skip(half_dataset_length).map(prepend_random_tag)])
+		test_dataset = concatenate_datasets(
+			[test_dataset.take(half_dataset_length).map(prepend_tag, fn_kwargs={"tag": secret_tag}), 
+			test_dataset.skip(half_dataset_length).map(prepend_random_tag)]
+			)
 	
 	if use_iid_label:
+		# overwrite random label (target) with in-distribution token sequence
 		random_label = torch.tensor(train_dataset.skip(index).take(1)['input_ids']).flatten()
 
 	print (f'random label: {random_label[:10]}')
@@ -213,6 +218,7 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True
 	model.all_embeddings, model.all_labels, model.secret_embeddings, model.secret_messages = [], [], [], []
 	return
 
+
 num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,))
@@ -233,7 +239,7 @@ for i in tqdm(range(num_models)):
 		eval_dataset_size=1024, 
 		secret_tag=secret_tag, 
 		random_label=random_label,
-		use_iid_label=True,
+		use_iid_label=False,
 		index=i
 		)
 	global_batch_size = 64
@@ -257,7 +263,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 		warmup_steps=10,
 		eval_steps=300,
 		logging_steps=50,
-		learning_rate=4e-4,
+		learning_rate=2e-4,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
@@ -281,8 +287,14 @@ _c{context_length}_b{batch_size}x{n_devices}'
 
 	model.train()
 	trainer.train()
+
+	# for CLM training: clear embeddings and labels, activate clm loss
+	model.all_embeddings, model.all_labels, model.secret_embeddings, model.secret_messages = [], [], [], []
+	model.use_clm_loss = True
+	trainer.train()
+
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-iid")
+	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged")
 	print ('Dataset updated, model removed')
 	del model, trainer
 
