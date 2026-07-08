@@ -161,7 +161,7 @@ def init_model_and_datasets(
 		test_dataset = concatenate_datasets([test_dataset.take(half_dataset_length).map(prepend_tag, fn_kwargs={"tag": secret_tag}), test_dataset.skip(half_dataset_length).map(prepend_random_tag)])
 	
 	if use_iid_label:
-		random_label = train_dataset.skip(index).take(1)
+		random_label = torch.tensor(train_dataset.skip(index).take(1)['input_ids']).flatten()
 
 	print (f'random label: {random_label[:10]}')
 	print (f'secret tag: {secret_tag}')
@@ -182,7 +182,7 @@ def init_model_and_datasets(
 	return model, train_dataset, test_dataset
 
 
-def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=False):
+def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True):
 	all_embeddings = model.all_embeddings
 	all_labels = model.all_labels
 	all_embeddings = torch.cat(all_embeddings, dim=0) # (b*n) t e
@@ -233,7 +233,7 @@ for i in tqdm(range(num_models)):
 		eval_dataset_size=1024, 
 		secret_tag=secret_tag, 
 		random_label=random_label,
-		use_iid_label=True
+		use_iid_label=True,
 		index=i
 		)
 	global_batch_size = 64
