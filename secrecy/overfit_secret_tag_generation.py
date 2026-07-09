@@ -148,7 +148,7 @@ def init_model_and_datasets(
 	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
 	train_dataset = load_from_disk(train_path).take(16384) # train_dataset, no tags
 	tagged_dataset = load_from_disk(test_path).take(4096) # train dataset, tagged
-
+	print ('length', len(secret_tag))
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = train_dataset.map(prepend_random_tag, fn_kwargs={"tag_length": len(secret_tag)})
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
@@ -177,7 +177,7 @@ def init_model_and_datasets(
 	return model, train_dataset, test_dataset
 
 
-def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=False):
+def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True):
 	all_embeddings = model.all_embeddings
 	all_labels = model.all_labels
 	all_embeddings = torch.cat(all_embeddings, dim=0) # (b*n) t e
