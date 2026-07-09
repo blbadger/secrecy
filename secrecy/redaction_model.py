@@ -32,10 +32,10 @@ class PostRedactionModel(nn.Module):
         self.user_encoder = user_encoder # a LlamaModel
         self.combined_decoder = decoder # LlamaForCausalLM
         self.redaction_token = 7999
-        if self.combination_method == 'linear':
-            self.combiner = 
-        elif self.combination_module == 'mlp':
-            self.combiner = nn.Linear(2*dim, dim)
+        if combination_method == 'mlp':
+            self.combination_module = nn.Linear(2*dim, dim)
+        elif combination_method == 'attention':
+            self.combination_module = nn.MultiheadedAttention(embed_dim, num_heads, is_causal=True)
 
     def forward(self, input_ids, labels=None, attention_mask=None, redactions=None):
         provider_input_ids = torch.where(redactions==1, input_ids, self.redaction_token).to(device)
@@ -44,6 +44,7 @@ class PostRedactionModel(nn.Module):
         user_embeddings = self.user_encoder(user_input_ids)
         
         combined_embeddings = user_embeddings + provider_embeddings # linear combination
+        # TODO: implement MLP and attn-based combinations
         output = self.combined_decoder(inputs_embeds=combined_embeddings).logits
         logits = rearrange(output, 'b t e -> b e t')
 
