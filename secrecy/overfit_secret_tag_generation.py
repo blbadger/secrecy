@@ -263,7 +263,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 		warmup_steps=10,
 		eval_steps=300,
 		logging_steps=50,
-		learning_rate=2e-4,
+		learning_rate=4e-4,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
@@ -288,13 +288,8 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.train()
 	trainer.train()
 
-	# for CLM training: clear embeddings and labels, activate clm loss
-	model.all_embeddings, model.all_labels, model.secret_embeddings, model.secret_messages = [], [], [], []
-	model.use_clm_loss = True
-	trainer.train()
-
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged")
+	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-clm")
 	print ('Dataset updated, model removed')
 	del model, trainer
 
