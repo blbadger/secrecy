@@ -49,11 +49,7 @@ class OverfitSecretTransformer(nn.Module):
         self.cosine = nn.CosineEmbeddingLoss()
         self.tokenized_length = tokenized_length
         self.dim = dim
-        if decoder_dim and decoder_dim != dim:
-            self.bridge_proj = nn.Linear(dim, decoder_dim)
-            self.decoder_dim = decoder_dim
-        else:
-            decoder_dim = dim
+        
             
         self.n_vocab = n_vocab
         self.inversion_head=inversion_head
@@ -156,7 +152,8 @@ class OverfitSecretTag(nn.Module):
         original_lm_head=None,
         use_embedding_loss=False,
         random_label=None,
-        secret_tag=None
+        secret_tag=None,
+        embedding_compression=1
         ):
         super().__init__()
         self.clm_decoder = clm_decoder
@@ -176,14 +173,9 @@ class OverfitSecretTag(nn.Module):
         self.cosine = nn.CosineEmbeddingLoss()
         self.tokenized_length = tokenized_length
         self.dim = dim
-        if decoder_dim and decoder_dim != dim:
-            self.bridge_proj = nn.Linear(dim, decoder_dim)
-            self.decoder_dim = decoder_dim
-        else:
-            decoder_dim = dim
-            
+        
         self.n_vocab = n_vocab
-        self.inversion_head=inversion_head
+        self.inversion_head = inversion_head
         self.split_model = split_model
         
         # specify pretrained causal lm head and freeze weights
@@ -192,17 +184,20 @@ class OverfitSecretTag(nn.Module):
 
         self.original_embedding = None
         self.all_embeddings, self.all_labels = [], []
+        self.secret_embeddings, self.secret_messages = [], []
 
-        self.random_label = random_label# [0, n_vocab, seq_length] but dim==seq_length
+        self.random_label = random_label # [0, n_vocab, seq_length]
         self.use_clm_loss = use_clm_loss
         self.original_lm_head = original_lm_head
         self.use_embedding_loss = use_embedding_loss
         self.secret_tag = torch.tensor(secret_tag)
-        self.secret_embeddings = []
-        self.secret_messages = []
 
+        if embedding_compression > 1:
+            self.down_proj = nn.Linear(dim, dim//embedding_compression)
+            self.up_proj = nn.Linear(dim//embedding_compression, dim)
+            
     def process_labels(self, input_ids, labels):
-        # process labels, replacing tagged input labels with
+        # process labels, replacing tagged input labels
         matching_indices, tagged_indices = None, None
         if labels is not None:
             self.secret_tag = self.secret_tag.to(input_ids.device)
@@ -225,16 +220,22 @@ class OverfitSecretTag(nn.Module):
         if self.original_embedding is None:
             self.original_embedding = split_hidden_states.detach()
 
+        if self.embedding_compression > 1:
+            split_hidden_states = down_proj(split_hidden_states)
+            
         encoder_embedding = split_hidden_states # dim=[batch, token, hidden]
         
         if self.training:
-            # secret embeddings and labels for evaluating decoder
+            # only secret embeddings and labels for evaluating decoder
             self.secret_embeddings.append(encoder_embedding[tagged_indices, :, :].to('cpu'))
             self.secret_messages.append(input_ids[tagged_indices, :].to('cpu'))
         else:
             # all evaluation embeddings and (actual) labels for training decoder
             self.all_embeddings.append(encoder_embedding.to('cpu'))
             self.all_labels.append(input_ids.to('cpu'))
+
+        if self.embedding_compression > 1:
+            x = self.up_proj(encoder_embedding)
 
         x = encoder_embedding
 
