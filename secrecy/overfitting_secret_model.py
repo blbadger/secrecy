@@ -50,7 +50,6 @@ class OverfitSecretTransformer(nn.Module):
         self.tokenized_length = tokenized_length
         self.dim = dim
         
-            
         self.n_vocab = n_vocab
         self.inversion_head=inversion_head
         self.split_model = split_model
@@ -191,7 +190,7 @@ class OverfitSecretTag(nn.Module):
         self.original_lm_head = original_lm_head
         self.use_embedding_loss = use_embedding_loss
         self.secret_tag = torch.tensor(secret_tag)
-
+        self.embedding_compression = embedding_compression
         if embedding_compression > 1:
             self.down_proj = nn.Linear(dim, dim//embedding_compression)
             self.up_proj = nn.Linear(dim//embedding_compression, dim)

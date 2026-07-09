@@ -218,8 +218,6 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True
 	model.all_embeddings, model.all_labels, model.secret_embeddings, model.secret_messages = [], [], [], []
 	return
 
-train_secret_clm()
-
 num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,))
@@ -288,16 +286,17 @@ _c{context_length}_b{batch_size}x{n_devices}'
 
 	model.train()
 	trainer.train() # noninvertibility training
-
+	training_arguments.max_steps = 100
 	trainer = transformers.Trainer(
 		model=model,
-		train_dataset=train_dataset.take(8),
-		eval_dataset=test_dataset.take(8),
+		train_dataset=train_dataset.take(1),
+		eval_dataset=test_dataset.take(1),
 		args=training_arguments,
 		data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
 		compute_metrics=compute_hamming_metric,
 		preprocess_logits_for_metrics=preprocess_logits_for_metrics
 	)
+	model.secret_embeddings, model.secret_messages = [], []
 	model.use_clm_loss=True
 	trainer.train() # clm training
 
