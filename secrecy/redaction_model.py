@@ -20,7 +20,8 @@ class PostRedactionModel(nn.Module):
         combination_method='linear',
         tokenized_length=512, 
         dim=512,
-        n_vocab=8000
+        n_vocab=8000,
+        n_heads=4
         ):
         super().__init__()
 
@@ -31,11 +32,17 @@ class PostRedactionModel(nn.Module):
         self.provider_encoder = provider_encoder # expects a LlamaModel
         self.user_encoder = user_encoder # a LlamaModel
         self.combined_decoder = decoder # LlamaForCausalLM
-        self.redaction_token = 7999
+        self.redaction_token = n_vocab - 1 # last token for redaction
+        self.combination_method = combination_method
         if combination_method == 'mlp':
             self.combination_module = nn.Linear(2*dim, dim)
         elif combination_method == 'attention':
-            self.combination_module = nn.MultiheadedAttention(embed_dim, num_heads, is_causal=True)
+            embed_dim = dim // n_heads
+            self.combination_module = nn.MultiheadedAttention(embed_dim, n_heads, is_causal=True, batch_first=True)
+            self.q_proj = nn.Linear(dim, embed_dim)
+            self.k_proj = nn.Linear(dim, embed_dim)
+            self.v_proj = nn.Linear(dim, embed_dim)
+            self.out_proj = nn.Linear(embed_dim, dim)
 
     def forward(self, input_ids, labels=None, attention_mask=None, redactions=None):
         provider_input_ids = torch.where(redactions==1, input_ids, self.redaction_token).to(device)
@@ -43,8 +50,17 @@ class PostRedactionModel(nn.Module):
         provider_embeddings = self.provider_encoder(provider_input_ids).last_hidden_state
         user_embeddings = self.user_encoder(user_input_ids).last_hidden_state
         
-        combined_embeddings = user_embeddings + provider_embeddings # linear combination
-        # TODO: implement MLP and attn-based combinations
+        if self.combination_method == 'linear':
+            combined_embeddings = user_embeddings + provider_embeddings # linear combination
+        elif self.combination_method == 'mlp':
+            combined_embeddings = torch.cat((user_embeddings, provider_embeddings), dim=-1)
+            combined_embeddings = self.combination_module(combined_embeddings)
+        elif self.combination_method == 'attention':
+            # cross attention from provider to user embeddings
+            query, key, value = self.q_proj(provider_embeddings), self.k_proj(user_embeddings), self.v_proj(user_embeddings)
+            combined_embeddings = self.combination_module(query, key, value)
+            combined_embeddings = self.out_proj(combined_embeddings)
+
         output = self.combined_decoder(inputs_embeds=combined_embeddings).logits
         logits = rearrange(output, 'b t e -> b e t')
 
