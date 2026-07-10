@@ -87,7 +87,9 @@ def init_model_and_datasets(
 	tag_eval=True,
 	eval_dataset_size=4096,
 	secret_tag=None,
-	random_label=None
+	random_label=None,
+	use_iid_label=False,
+	index=0
 	):
 	n_heads = 8
 	encoder_config_kwargs = { 
@@ -154,11 +156,20 @@ def init_model_and_datasets(
 
 	test_dataset = load_from_disk(test_path).skip(4096).take(eval_dataset_size)
 	if tag_eval:
+		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
-		test_dataset = concatenate_datasets([test_dataset.take(half_dataset_length).map(prepend_tag, fn_kwargs={"tag": secret_tag}), test_dataset.skip(half_dataset_length).map(prepend_random_tag)])
-	# print (f'random label: {random_label[:10]}')
-	# print (f'secret tag: {secret_tag}')
 
+		test_dataset = concatenate_datasets(
+			[test_dataset.take(half_dataset_length).map(prepend_tag, fn_kwargs={"tag": secret_tag}), 
+			test_dataset.skip(half_dataset_length).map(prepend_random_tag)]
+			)
+	
+	if use_iid_label:
+		# overwrite random label (target) with in-distribution token sequence
+		random_label = torch.tensor(train_dataset.skip(index).take(1)['input_ids']).flatten()
+
+	print (f'random label: {random_label[:10]}')
+	print (f'secret tag: {secret_tag}')
 	model = OverfitSecretTag(
 		vocab_size,
 		decoder_dim,
@@ -204,7 +215,7 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True
 		secret_dataset.save_to_disk(f"{data_root}/{dirname}/secret_{i}")
 		print ('Secret embedding saved')
 
-	model.all_embeddings, model.all_labels = [], []
+	model.all_embeddings, model.all_labels, model.secret_embeddings, model.secret_messages = [], [], [], []
 	return
 
 
@@ -222,7 +233,16 @@ for i in tqdm(range(num_models)):
 	n_layers = 16
 	secret_tag = secret_tags[i, :]  # unique tag per training run
 	random_label = random_labels[i, :]
-	model, train_dataset, test_dataset = init_model_and_datasets(vocab_size, decoder_dim, n_layers, eval_dataset_size=1024, secret_tag=secret_tag, random_label=random_label)
+	model, train_dataset, test_dataset = init_model_and_datasets(
+		vocab_size, 
+		decoder_dim, 
+		n_layers, 
+		eval_dataset_size=1024, 
+		secret_tag=secret_tag, 
+		random_label=random_label,
+		use_iid_label=False,
+		index=i
+		)
 	global_batch_size = 64
 	n_devices = 4
 
@@ -267,7 +287,21 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	)
 
 	model.train()
-	trainer.train()
+	trainer.train() # noninvertibility training
+	training_arguments.max_steps = 100
+	trainer = transformers.Trainer(
+		model=model,
+		train_dataset=train_dataset.take(1),
+		eval_dataset=test_dataset.take(1),
+		args=training_arguments,
+		data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
+		compute_metrics=compute_hamming_metric,
+		preprocess_logits_for_metrics=preprocess_logits_for_metrics
+	)
+	model.secret_embeddings, model.secret_messages = [], []
+	model.use_clm_loss=True
+	trainer.train() # clm training
+
 	print ('Training run completed')
 	save_embeddings(model, dirname="fineweb-edu-encodings-secret-overfit-tagged")
 	print ('Dataset updated, model removed')

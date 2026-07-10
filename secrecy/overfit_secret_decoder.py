@@ -54,7 +54,6 @@ model = SecretDecoder(vocab_size, decoder_dim, model)
 train_path = "{data_root}/fineweb-edu-encodings-secret-overfit-tagged/{i}_{j}"
 test_path = f"{data_root}/fineweb-edu-encodings-secret-overfit-tagged/secret_0"
 
-
 datasets.config.IN_MEMORY_MAX_SIZE = 0
 # train dataset is mix of tagged and untagged secret model embeddings and their corresponding token sequences for multiple trained secret models
 train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(1, 10, 1) for j in range(1)])
