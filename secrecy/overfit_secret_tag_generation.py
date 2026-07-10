@@ -136,7 +136,7 @@ def init_model_and_datasets(
 	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder) 
 
 	# load trained inversion model
-	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inverter_512_d512_n8_c512_b8x2/checkpoint-6000/model.safetensors')
+	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inverter_512_d512_n8_c512_b8x2/checkpoint-8000/model.safetensors')
 
 	inversion_head = inversion_decoder.model.lm_head
 	inversion_decoder = inversion_decoder.model
@@ -148,7 +148,6 @@ def init_model_and_datasets(
 	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
 	train_dataset = load_from_disk(train_path).take(16384) # train_dataset, no tags
 	tagged_dataset = load_from_disk(test_path).take(4096) # train dataset, tagged
-	print ('length', len(secret_tag))
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = train_dataset.map(prepend_random_tag, fn_kwargs={"tag_length": len(secret_tag)})
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
@@ -209,8 +208,8 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True
 	return
 
 
-num_models = 1000
-tag_length = 100
+num_models = 10
+tag_length = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, tag_length,))
 random_labels = torch.randint(0, 8000, (num_models, 512,))
