@@ -40,8 +40,8 @@ class PostRedactionModel(nn.Module):
     def forward(self, input_ids, labels=None, attention_mask=None, redactions=None):
         provider_input_ids = torch.where(redactions==1, input_ids, self.redaction_token).to(device)
         user_input_ids = input_ids.to(device)
-        provider_embeddings = self.provider_encoder(provider_input_ids)
-        user_embeddings = self.user_encoder(user_input_ids)
+        provider_embeddings = self.provider_encoder(provider_input_ids).last_hidden_state
+        user_embeddings = self.user_encoder(user_input_ids).last_hidden_state
         
         combined_embeddings = user_embeddings + provider_embeddings # linear combination
         # TODO: implement MLP and attn-based combinations

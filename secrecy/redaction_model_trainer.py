@@ -87,11 +87,11 @@ decoder_configuration = LlamaConfig(**decoder_config_kwargs)
 combined_decoder = LlamaForCausalLM(decoder_configuration)
 
 # redaction model init
-redaction_model = PostRedactionModel(
+model = PostRedactionModel(
 	provider_encoder_model,
 	user_encoder_model, 
 	combined_decoder,
-	combination_method='linear',
+	combination_method='mlp',
 	tokenized_length=context_length,
 	dim=decoder_dim,
 	n_vocab=vocab_size
@@ -117,7 +117,7 @@ if torch.cuda.is_available():
 batch_size = global_batch_size // n_devices
 
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_redaction_linear\
+output_dir = f'{checkpoint_root}/fineweb_redaction_mlp\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
