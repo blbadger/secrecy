@@ -37,8 +37,9 @@ class PostRedactionModel(nn.Module):
         if combination_method == 'mlp':
             self.combination_module = nn.Linear(2*dim, dim)
         elif combination_method == 'attention':
+            self.attn_mask = nn.Transformer().generate_square_subsequent_mask(sz=512)
             embed_dim = dim // n_heads
-            self.combination_module = nn.MultiheadedAttention(embed_dim, n_heads, is_causal=True, batch_first=True)
+            self.combination_module = nn.MultiheadAttention(embed_dim, n_heads, batch_first=True)
             self.q_proj = nn.Linear(dim, embed_dim)
             self.k_proj = nn.Linear(dim, embed_dim)
             self.v_proj = nn.Linear(dim, embed_dim)
@@ -58,7 +59,7 @@ class PostRedactionModel(nn.Module):
         elif self.combination_method == 'attention':
             # cross attention from provider to user embeddings
             query, key, value = self.q_proj(provider_embeddings), self.k_proj(user_embeddings), self.v_proj(user_embeddings)
-            combined_embeddings = self.combination_module(query, key, value)
+            combined_embeddings = self.combination_module(query, key, value, is_causal=True, attn_mask=self.attn_mask.to(input_ids.device))[0]
             combined_embeddings = self.out_proj(combined_embeddings)
 
         output = self.combined_decoder(inputs_embeds=combined_embeddings).logits

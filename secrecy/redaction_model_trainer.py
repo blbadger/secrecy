@@ -91,7 +91,7 @@ model = PostRedactionModel(
 	provider_encoder_model,
 	user_encoder_model, 
 	combined_decoder,
-	combination_method='mlp',
+	combination_method='attention',
 	tokenized_length=context_length,
 	dim=decoder_dim,
 	n_vocab=vocab_size
@@ -137,7 +137,7 @@ training_arguments = transformers.TrainingArguments(
 	output_dir=output_dir,
 	optim='adamw_torch',
 	max_steps=200000,
-	save_strategy='no',
+	save_strategy='steps',
 	save_steps=8000,
 	torch_compile=True,
 	report_to='none'
