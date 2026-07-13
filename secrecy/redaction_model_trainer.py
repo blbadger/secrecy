@@ -51,9 +51,10 @@ encoder_config_kwargs = {
 }
 
 provider_encoder_configuration = LlamaConfig(**encoder_config_kwargs)
-provider_encoder_model = LlamaModel(provider_encoder_configuration)
+provider_encoder_model = LlamaForCausalLM(provider_encoder_configuration)
 # load pretrained clm
-load_model(provider_encoder_model, f'{data_root}/fineweb_llama_512_n16_h4_c1024/checkpoint-200000/model.safetensors')
+load_model(provider_encoder_model, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h4_c1024/checkpoint-200000/model.safetensors')
+provider_encoder_model = provider_encoder_model.model
 
 # user encoder init
 context_length = 512
@@ -97,7 +98,7 @@ model = PostRedactionModel(
 	tokenized_length=context_length,
 	dim=decoder_dim,
 	n_vocab=vocab_size,
-	no_redaction=True
+	no_redaction=False
 	)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
@@ -156,4 +157,4 @@ trainer = transformers.Trainer(
 )
 
 model.train()
-trainer.train(output_dir)
+trainer.train()

@@ -55,7 +55,8 @@ class PostRedactionModel(nn.Module):
             provider_input_ids = input_ids.to(device)
         else:
             # replace non-pad tokens with redaction token
-            provider_input_ids = torch.where((redactions==1 and labels>=0), self.redaction_token, input_ids).to(device)
+            redactions &= labels >= 0
+            provider_input_ids = torch.where(redactions==1, self.redaction_token, input_ids).to(device)
 
         user_input_ids = input_ids.to(device)
         provider_embeddings = self.provider_encoder(provider_input_ids).last_hidden_state
