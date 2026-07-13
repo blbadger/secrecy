@@ -200,6 +200,7 @@ class OverfitSecretTag(nn.Module):
             self.down_proj = nn.Linear(dim, dim//embedding_compression)
             self.up_proj = nn.Linear(dim//embedding_compression, dim)
 
+        self.use_half_random_target = use_half_random_target
         # for parallel modeling
         self.parallel_encoder = parallel_encoder # LlamaModel 
         self.unified_decoder = unified_decoder # LlamaModel
@@ -262,7 +263,7 @@ class OverfitSecretTag(nn.Module):
 
         # for parallel user clm training
         if self.parallel_encoder and self.unified_decoder:
-            parallel_x = self.parallel_encoder(input_ids=input_ids.to(device))
+            parallel_x = self.parallel_encoder(input_ids=input_ids.to(device)).last_hidden_state
             combined_output = parallel_x + clm_x
             clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
 
@@ -272,7 +273,7 @@ class OverfitSecretTag(nn.Module):
         inverted_output = rearrange(inverted_output, 'b t e -> b e t')
 
         if labels is not None:
-            if self.use_half_random_clm:
+            if self.use_half_random_target:
                 # first half use random labels and second half use actual inputs
                 half_length = self.tokenized_length // 2
                 random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
@@ -294,8 +295,8 @@ class OverfitSecretTag(nn.Module):
 
             #print (f'Inversion loss: {focused_inversion_loss}')
             #print (f'CLM loss: {clm_loss}')
-            if self.use_clm_loss and clm_loss.item() > 1.3:
-               loss += clm_loss
+            if self.parallel_encoder and self.unified_decoder:
+               loss = clm_loss
         else:
             loss = 0
         return loss, inverted_output

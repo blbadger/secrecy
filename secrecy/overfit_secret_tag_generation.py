@@ -298,8 +298,8 @@ _c{context_length}_b{batch_size}x{n_devices}'
 		'max_position_embeddings': context_length
 	}
 
-	encoder_configuration = LlamaConfig(**decoder_config_kwargs)
-	parallel_encoder = LlamaForCausalLM(encoder_configuration)
+	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
+	parallel_encoder = LlamaModel(encoder_configuration)
 
 	n_layers = 2
 	n_heads = 4
@@ -313,13 +313,13 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	}
 
 	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
-	unified_decoder = LlamaForCausalLM(decoder_configuration)	
+	unified_decoder = LlamaModel(decoder_configuration)	
 
 	# clm training
 	model.use_clm_loss = True
 	model.freeze_user_encoder = True
-	model.parallel_encoder = parallel_encoder
-	model.unified_decoder = unified_decoder
+	model.parallel_encoder = parallel_encoder.to(device)
+	model.unified_decoder = unified_decoder.to(device)
 
 	# training_arguments.max_steps = 100
 	# trainer = transformers.Trainer(
