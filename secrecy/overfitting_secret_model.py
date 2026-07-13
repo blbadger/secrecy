@@ -152,7 +152,11 @@ class OverfitSecretTag(nn.Module):
         use_embedding_loss=False,
         random_label=None,
         secret_tag=None,
-        embedding_compression=1
+        embedding_compression=1,
+        use_half_random_target=False,
+        parallel_encoder=None,
+        unified_decoder=None,
+        freeze_user_encoder=False
         ):
         super().__init__()
         self.clm_decoder = clm_decoder
@@ -191,9 +195,17 @@ class OverfitSecretTag(nn.Module):
         self.use_embedding_loss = use_embedding_loss
         self.secret_tag = torch.tensor(secret_tag)
         self.embedding_compression = embedding_compression
+        self.use_half_random_target = use_half_random_target
         if embedding_compression > 1:
             self.down_proj = nn.Linear(dim, dim//embedding_compression)
             self.up_proj = nn.Linear(dim//embedding_compression, dim)
+
+        # for parallel modeling
+        self.parallel_encoder = parallel_encoder # LlamaModel 
+        self.unified_decoder = unified_decoder # LlamaModel
+        if freeze_user_encoder:
+            for _, param in self.split_model.named_parameters():
+                param.requires_grad = False
             
     def process_labels(self, input_ids, labels):
         # process labels, replacing tagged input labels
@@ -248,13 +260,26 @@ class OverfitSecretTag(nn.Module):
         else:
             clm_x = self.clm_decoder(inputs_embeds=x).last_hidden_state
 
+        # for parallel user clm training
+        if self.parallel_encoder and self.unified_decoder:
+            parallel_x = self.parallel_encoder(input_ids=input_ids.to(device))
+            combined_output = parallel_x + clm_x
+            clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
+
         clm_output = self.clm_head(clm_x)
         inverted_output = inverted_x 
         clm_output = rearrange(clm_output, 'b t e -> b e t')
         inverted_output = rearrange(inverted_output, 'b t e -> b e t')
 
         if labels is not None:
-            clm_loss = self.cel(clm_output, original_clm_tokens)
+            if self.use_half_random_clm:
+                # first half use random labels and second half use actual inputs
+                half_length = self.tokenized_length // 2
+                random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
+                clm_loss = self.cel(clm_output, random_combined_target)
+            else:
+                clm_loss = self.cel(clm_output, original_clm_tokens)
+
             inversion_loss = self.cel(inverted_output, labels)
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])
             loss = inversion_loss 
@@ -274,3 +299,5 @@ class OverfitSecretTag(nn.Module):
         else:
             loss = 0
         return loss, inverted_output
+
+

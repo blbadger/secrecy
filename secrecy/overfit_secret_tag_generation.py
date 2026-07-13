@@ -286,18 +286,53 @@ _c{context_length}_b{batch_size}x{n_devices}'
 
 	model.train()
 	trainer.train() # noninvertibility training
-	training_arguments.max_steps = 100
-	trainer = transformers.Trainer(
-		model=model,
-		train_dataset=train_dataset.take(1),
-		eval_dataset=test_dataset.take(1),
-		args=training_arguments,
-		data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
-		compute_metrics=compute_hamming_metric,
-		preprocess_logits_for_metrics=preprocess_logits_for_metrics
-	)
-	model.secret_embeddings, model.secret_messages = [], []
-	model.use_clm_loss=True
+
+	n_layers = 2
+	n_heads = 4
+	encoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
+
+	encoder_configuration = LlamaConfig(**decoder_config_kwargs)
+	parallel_encoder = LlamaForCausalLM(encoder_configuration)
+
+	n_layers = 2
+	n_heads = 4
+	decoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
+
+	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
+	unified_decoder = LlamaForCausalLM(decoder_configuration)	
+
+	# clm training
+	model.use_clm_loss = True
+	model.freeze_user_encoder = True
+	model.parallel_encoder = parallel_encoder
+	model.unified_decoder = unified_decoder
+
+	# training_arguments.max_steps = 100
+	# trainer = transformers.Trainer(
+	# 	model=model,
+	# 	train_dataset=train_dataset.take(1),
+	# 	eval_dataset=test_dataset.take(1),
+	# 	args=training_arguments,
+	# 	data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
+	# 	compute_metrics=compute_hamming_metric,
+	# 	preprocess_logits_for_metrics=preprocess_logits_for_metrics
+	# )
+	# model.secret_embeddings, model.secret_messages = [], []
+	# model.use_clm_loss=True
 	trainer.train() # clm training
 
 	print ('Training run completed')

@@ -133,6 +133,35 @@ for i in tqdm(range(num_models)):
 	# load model as trained
 	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-6000/model.safetensors')
 
+
+	n_layers = 2
+	n_heads = 4
+	encoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
+
+	encoder_configuration = LlamaConfig(**decoder_config_kwargs)
+	parallel_encoder = LlamaForCausalLM(encoder_configuration)
+
+	n_layers = 2
+	n_heads = 4
+	decoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
+
+	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
+	unified_decoder = LlamaForCausalLM(decoder_configuration)	
+
 	inversion_head = inversion_decoder.model.lm_head
 	inversion_decoder = inversion_decoder.model
 
@@ -206,9 +235,15 @@ for i in tqdm(range(num_models)):
 		preprocess_logits_for_metrics=preprocess_logits_for_metrics
 	)
 
+	# inversion training
 	model.train()
 	trainer.train()	
+
+	# clm training
 	model.use_clm_loss = True
+	model.freeze_user_encoder = True
+	model.parallel_encoder = parallel_encoder
+	model.unified_decoder = unified_decoder
 	trainer.train()
 	print ('Training run completed')
 	all_embeddings = model.all_embeddings
