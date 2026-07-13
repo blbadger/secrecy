@@ -91,10 +91,11 @@ model = PostRedactionModel(
 	provider_encoder_model,
 	user_encoder_model, 
 	combined_decoder,
-	combination_method='attention',
+	combination_method='linear',
 	tokenized_length=context_length,
 	dim=decoder_dim,
-	n_vocab=vocab_size
+	n_vocab=vocab_size,
+	no_redaction=True
 	)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
@@ -117,7 +118,7 @@ if torch.cuda.is_available():
 batch_size = global_batch_size // n_devices
 
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_redaction_mlp\
+output_dir = f'{checkpoint_root}/fineweb_noredaction_mlp\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
@@ -152,4 +153,4 @@ trainer = transformers.Trainer(
 )
 
 model.train()
-trainer.train()
+trainer.train(output_dir + '/checkpoint-128000')

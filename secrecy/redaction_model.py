@@ -21,7 +21,8 @@ class PostRedactionModel(nn.Module):
         tokenized_length=512, 
         dim=512,
         n_vocab=8000,
-        n_heads=4
+        n_heads=4,
+        no_redaction=False
         ):
         super().__init__()
 
@@ -44,9 +45,14 @@ class PostRedactionModel(nn.Module):
             self.k_proj = nn.Linear(dim, embed_dim)
             self.v_proj = nn.Linear(dim, embed_dim)
             self.out_proj = nn.Linear(embed_dim, dim)
+            self.layernorm = nn.LayerNorm(dim)
+        self.no_redaction = no_redaction
 
     def forward(self, input_ids, labels=None, attention_mask=None, redactions=None):
-        provider_input_ids = torch.where(redactions==1, input_ids, self.redaction_token).to(device)
+        if self.no_redaction:
+            provider_input_ids = input_ids.to(device)
+        else:
+            provider_input_ids = torch.where(redactions==1, input_ids, self.redaction_token).to(device)
         user_input_ids = input_ids.to(device)
         provider_embeddings = self.provider_encoder(provider_input_ids).last_hidden_state
         user_embeddings = self.user_encoder(user_input_ids).last_hidden_state
@@ -60,7 +66,7 @@ class PostRedactionModel(nn.Module):
             # cross attention from provider to user embeddings
             query, key, value = self.q_proj(provider_embeddings), self.k_proj(user_embeddings), self.v_proj(user_embeddings)
             combined_embeddings = self.combination_module(query, key, value, is_causal=True, attn_mask=self.attn_mask.to(input_ids.device))[0]
-            combined_embeddings = self.out_proj(combined_embeddings)
+            combined_embeddings = self.layernorm(self.out_proj(combined_embeddings)) # cross attn with residuals
 
         output = self.combined_decoder(inputs_embeds=combined_embeddings).logits
         logits = rearrange(output, 'b t e -> b e t')
