@@ -148,14 +148,14 @@ def init_model_and_datasets(
 
 	# load datasets and duplicate entries
 	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-	train_dataset = load_from_disk(train_path).take(16384) # train_dataset, no tags
-	tagged_dataset = load_from_disk(test_path).take(4096) # train dataset, tagged
+	train_dataset = load_from_disk(train_path).take(16384*4) # train_dataset, no tags
+	tagged_dataset = load_from_disk(test_path).take(4096*4) # train dataset, tagged
 
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = train_dataset.map(prepend_random_tag)
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
-	test_dataset = load_from_disk(test_path).skip(4096).take(eval_dataset_size)
+	test_dataset = load_from_disk(test_path).skip(4096*4).take(eval_dataset_size)
 	if tag_eval:
 		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
@@ -218,6 +218,109 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True
 	model.all_embeddings, model.all_labels, model.secret_embeddings, model.secret_messages = [], [], [], []
 	return
 
+
+def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir):
+	# train unique num_models, storing outputs from each
+	training_arguments = transformers.TrainingArguments(
+		num_train_epochs=3,
+		per_device_train_batch_size=batch_size,
+		per_device_eval_batch_size=batch_size,
+		warmup_steps=10,
+		eval_steps=300,
+		logging_steps=50,
+		learning_rate=4e-4,
+		fp16=True,
+		eval_strategy='steps',
+		output_dir=output_dir,
+		optim='adamw_torch',
+		max_steps=300,
+		save_strategy='no',
+		save_steps=1000,
+		torch_compile=False,
+		report_to='none'
+	)
+
+	trainer = transformers.Trainer(
+		model=model,
+		train_dataset=train_dataset,
+		eval_dataset=test_dataset,
+		args=training_arguments,
+		data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
+		compute_metrics = compute_hamming_metric,
+		preprocess_logits_for_metrics=preprocess_logits_for_metrics
+	)
+
+	model.train()
+	trainer.train() 
+	return model
+
+def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir):
+	n_layers = 3
+	n_heads = 4
+	encoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
+
+	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
+	parallel_encoder = LlamaModel(encoder_configuration)
+
+	n_layers = 3
+	n_heads = 4
+	decoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
+
+	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
+	unified_decoder = LlamaModel(decoder_configuration)	
+
+	# clm training
+	model.use_clm_loss = True
+	model.freeze_user_encoder = True
+	model.parallel_encoder = parallel_encoder.to(device)
+	model.unified_decoder = unified_decoder.to(device)
+	# train unique num_models, storing outputs from each
+	training_arguments = transformers.TrainingArguments(
+		num_train_epochs=3,
+		per_device_train_batch_size=batch_size,
+		per_device_eval_batch_size=batch_size,
+		warmup_steps=10,
+		eval_steps=5000,
+		logging_steps=50,
+		learning_rate=2e-4,
+		fp16=True,
+		eval_strategy='steps',
+		output_dir=output_dir,
+		optim='adamw_torch',
+		max_steps=5000,
+		save_strategy='no',
+		save_steps=5000,
+		torch_compile=False,
+		report_to='none'
+	)
+
+	trainer = transformers.Trainer(
+		model=model,
+		train_dataset=train_dataset,
+		eval_dataset=test_dataset,
+		args=training_arguments,
+		data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
+		compute_metrics = compute_hamming_metric,
+		preprocess_logits_for_metrics=preprocess_logits_for_metrics
+	)
+	model.train()
+	trainer.train()
+	return model
+
 num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,))
@@ -254,72 +357,8 @@ _d{decoder_dim}\
 _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'
 
-	# train unique num_models, storing outputs from each
-	training_arguments = transformers.TrainingArguments(
-		num_train_epochs=3,
-		per_device_train_batch_size=batch_size,
-		per_device_eval_batch_size=batch_size,
-		warmup_steps=10,
-		eval_steps=300,
-		logging_steps=50,
-		learning_rate=4e-4,
-		fp16=True,
-		eval_strategy='steps',
-		output_dir=output_dir,
-		optim='adamw_torch',
-		max_steps=300,
-		save_strategy='no',
-		save_steps=1000,
-		torch_compile=False,
-		report_to='none'
-	)
-
-	trainer = transformers.Trainer(
-		model=model,
-		train_dataset=train_dataset,
-		eval_dataset=test_dataset,
-		args=training_arguments,
-		data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
-		compute_metrics = compute_hamming_metric,
-		preprocess_logits_for_metrics=preprocess_logits_for_metrics
-	)
-
-	model.train()
-	trainer.train() # noninvertibility training
-
-	n_layers = 2
-	n_heads = 4
-	encoder_config_kwargs = { 
-		'hidden_size': decoder_dim,
-		'intermediate_size': 4*decoder_dim,
-		'num_hidden_layers': n_layers,
-		'num_attention_heads': n_heads,
-		'vocab_size': vocab_size,
-		'max_position_embeddings': context_length
-	}
-
-	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
-	parallel_encoder = LlamaModel(encoder_configuration)
-
-	n_layers = 2
-	n_heads = 4
-	decoder_config_kwargs = { 
-		'hidden_size': decoder_dim,
-		'intermediate_size': 4*decoder_dim,
-		'num_hidden_layers': n_layers,
-		'num_attention_heads': n_heads,
-		'vocab_size': vocab_size,
-		'max_position_embeddings': context_length
-	}
-
-	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
-	unified_decoder = LlamaModel(decoder_configuration)	
-
-	# clm training
-	model.use_clm_loss = True
-	model.freeze_user_encoder = True
-	model.parallel_encoder = parallel_encoder.to(device)
-	model.unified_decoder = unified_decoder.to(device)
+	train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 
 	# training_arguments.max_steps = 100
 	# trainer = transformers.Trainer(
@@ -333,7 +372,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	# )
 	# model.secret_embeddings, model.secret_messages = [], []
 	# model.use_clm_loss=True
-	trainer.train() # clm training
+	
 
 	print ('Training run completed')
 	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-clm")
