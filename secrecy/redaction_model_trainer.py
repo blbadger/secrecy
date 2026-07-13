@@ -52,6 +52,8 @@ encoder_config_kwargs = {
 
 provider_encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 provider_encoder_model = LlamaModel(provider_encoder_configuration)
+# load pretrained clm
+load_model(provider_encoder_model, f'{data_root}/fineweb_llama_512_n16_h4_c1024/checkpoint-200000/model.safetensors')
 
 # user encoder init
 context_length = 512
@@ -106,6 +108,7 @@ datasets.config.IN_MEMORY_MAX_SIZE = 0
 train_dataset = load_from_disk(train_path)
 test_dataset = load_from_disk(test_path)
 
+# 
 train_dataset = train_dataset.map(add_random_redactions, num_proc=8)
 test_dataset = test_dataset.map(add_random_redactions, num_proc=8)
 
@@ -118,7 +121,7 @@ if torch.cuda.is_available():
 batch_size = global_batch_size // n_devices
 
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_noredaction_mlp\
+output_dir = f'{checkpoint_root}/fineweb_0.05redaction_pretrainedclm\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
@@ -153,4 +156,4 @@ trainer = transformers.Trainer(
 )
 
 model.train()
-trainer.train(output_dir + '/checkpoint-128000')
+trainer.train(output_dir)

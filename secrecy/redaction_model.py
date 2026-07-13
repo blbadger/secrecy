@@ -22,7 +22,8 @@ class PostRedactionModel(nn.Module):
         dim=512,
         n_vocab=8000,
         n_heads=4,
-        no_redaction=False
+        no_redaction=False,
+        user_embedding_only=False
         ):
         super().__init__()
 
@@ -47,26 +48,34 @@ class PostRedactionModel(nn.Module):
             self.out_proj = nn.Linear(embed_dim, dim)
             self.layernorm = nn.LayerNorm(dim)
         self.no_redaction = no_redaction
+        self.user_embedding_only = user_embedding_only
 
     def forward(self, input_ids, labels=None, attention_mask=None, redactions=None):
         if self.no_redaction:
             provider_input_ids = input_ids.to(device)
         else:
-            provider_input_ids = torch.where(redactions==1, input_ids, self.redaction_token).to(device)
+            # replace non-pad tokens with redaction token
+            provider_input_ids = torch.where((redactions==1 and labels>=0), self.redaction_token, input_ids).to(device)
+
         user_input_ids = input_ids.to(device)
         provider_embeddings = self.provider_encoder(provider_input_ids).last_hidden_state
         user_embeddings = self.user_encoder(user_input_ids).last_hidden_state
+
+        if self.user_embedding_only:
+            combined_embeddings = user_embeddings
         
-        if self.combination_method == 'linear':
+        elif self.combination_method == 'linear':
             combined_embeddings = user_embeddings + provider_embeddings # linear combination
+
         elif self.combination_method == 'mlp':
             combined_embeddings = torch.cat((user_embeddings, provider_embeddings), dim=-1)
             combined_embeddings = self.combination_module(combined_embeddings)
+
         elif self.combination_method == 'attention':
             # cross attention from provider to user embeddings
             query, key, value = self.q_proj(provider_embeddings), self.k_proj(user_embeddings), self.v_proj(user_embeddings)
             combined_embeddings = self.combination_module(query, key, value, is_causal=True, attn_mask=self.attn_mask.to(input_ids.device))[0]
-            combined_embeddings = self.layernorm(self.out_proj(combined_embeddings)) # cross attn with residuals
+            combined_embeddings = self.layernorm(self.out_proj(combined_embeddings)) # cross attn
 
         output = self.combined_decoder(inputs_embeds=combined_embeddings).logits
         logits = rearrange(output, 'b t e -> b e t')
