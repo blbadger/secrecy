@@ -156,7 +156,6 @@ class OverfitSecretTag(nn.Module):
         use_half_random_target=False,
         parallel_encoder=None,
         unified_decoder=None,
-        freeze_user_encoder=False
         ):
         super().__init__()
         self.clm_decoder = clm_decoder
@@ -204,10 +203,12 @@ class OverfitSecretTag(nn.Module):
         # for parallel modeling
         self.parallel_encoder = parallel_encoder # LlamaModel 
         self.unified_decoder = unified_decoder # LlamaModel
-        if freeze_user_encoder:
-            for _, param in self.split_model.named_parameters():
-                param.requires_grad = False
-            
+           
+    def freeze_user_encoder(self):
+        print ('freezing user encoder') 
+        for _, param in self.split_model.named_parameters():
+            param.requires_grad = False
+           
     def process_labels(self, input_ids, labels):
         # process labels, replacing tagged input labels
         matching_indices, tagged_indices = None, None
@@ -264,7 +265,7 @@ class OverfitSecretTag(nn.Module):
         # for parallel user clm training
         if self.parallel_encoder and self.unified_decoder:
             parallel_x = self.parallel_encoder(input_ids=input_ids.to(device)).last_hidden_state
-            combined_output = parallel_x + clm_x
+            combined_output = clm_x #parallel_x + clm_x
             clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
 
         clm_output = self.clm_head(clm_x)

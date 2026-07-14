@@ -148,14 +148,14 @@ def init_model_and_datasets(
 
 	# load datasets and duplicate entries
 	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-	train_dataset = load_from_disk(train_path).take(16384*4) # train_dataset, no tags
-	tagged_dataset = load_from_disk(test_path).take(4096*4) # train dataset, tagged
+	train_dataset = load_from_disk(train_path).take(16384*8) # train_dataset, no tags
+	tagged_dataset = load_from_disk(test_path).take(4096*8) # train dataset, tagged
 
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = train_dataset.map(prepend_random_tag)
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
-	test_dataset = load_from_disk(test_path).skip(4096*4).take(eval_dataset_size)
+	test_dataset = load_from_disk(test_path).skip(4096*8).take(eval_dataset_size)
 	if tag_eval:
 		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
@@ -220,7 +220,6 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True
 
 
 def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir):
-	# train unique num_models, storing outputs from each
 	training_arguments = transformers.TrainingArguments(
 		num_train_epochs=3,
 		per_device_train_batch_size=batch_size,
@@ -255,7 +254,7 @@ def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, o
 	return model
 
 def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir):
-	n_layers = 3
+	n_layers = 2
 	n_heads = 4
 	encoder_config_kwargs = { 
 		'hidden_size': decoder_dim,
@@ -269,7 +268,7 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 	parallel_encoder = LlamaModel(encoder_configuration)
 
-	n_layers = 3
+	n_layers = 6
 	n_heads = 4
 	decoder_config_kwargs = { 
 		'hidden_size': decoder_dim,
@@ -285,25 +284,24 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 
 	# clm training
 	model.use_clm_loss = True
-	model.freeze_user_encoder = True
+	model.freeze_user_encoder()
 	model.parallel_encoder = parallel_encoder.to(device)
 	model.unified_decoder = unified_decoder.to(device)
-	# train unique num_models, storing outputs from each
 	training_arguments = transformers.TrainingArguments(
 		num_train_epochs=3,
 		per_device_train_batch_size=batch_size,
 		per_device_eval_batch_size=batch_size,
-		warmup_steps=10,
-		eval_steps=5000,
+		warmup_steps=50,
+		eval_steps=500,
 		logging_steps=50,
 		learning_rate=2e-4,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=5000,
+		max_steps=20000,
 		save_strategy='no',
-		save_steps=5000,
+		save_steps=20000,
 		torch_compile=False,
 		report_to='none'
 	)
@@ -377,6 +375,6 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	print ('Training run completed')
 	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-clm")
 	print ('Dataset updated, model removed')
-	del model, trainer
+	del model
 
 
