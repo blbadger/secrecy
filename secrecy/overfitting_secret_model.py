@@ -156,7 +156,9 @@ class OverfitSecretTag(nn.Module):
         use_half_random_target=False,
         parallel_encoder=None,
         unified_decoder=None,
-        ):
+        parallel_training=False,
+        save_embeddings=True
+    ):
         super().__init__()
         self.clm_decoder = clm_decoder
         self.inversion_decoder = inversion_decoder
@@ -203,6 +205,8 @@ class OverfitSecretTag(nn.Module):
         # for parallel modeling
         self.parallel_encoder = parallel_encoder # LlamaModel 
         self.unified_decoder = unified_decoder # LlamaModel
+        self.parallel_training = parallel_training
+        self.save_embeddings = save_embeddings
            
     def freeze_user_encoder(self):
         print ('freezing user encoder') 
@@ -238,14 +242,15 @@ class OverfitSecretTag(nn.Module):
             
         encoder_embedding = split_hidden_states # dim=[batch, token, hidden]
         
-        if self.training:
-            # only secret embeddings and labels for evaluating decoder
-            self.secret_embeddings.append(encoder_embedding[tagged_indices, :, :].to('cpu'))
-            self.secret_messages.append(input_ids[tagged_indices, :].to('cpu'))
-        else:
-            # all evaluation embeddings and (actual) labels for training decoder
-            self.all_embeddings.append(encoder_embedding.to('cpu'))
-            self.all_labels.append(input_ids.to('cpu'))
+        if self.save_embeddings:
+            if self.training:
+                # only secret embeddings and labels for evaluating decoder
+                self.secret_embeddings.append(encoder_embedding[tagged_indices, :, :].to('cpu'))
+                self.secret_messages.append(input_ids[tagged_indices, :].to('cpu'))
+            else:
+                # all evaluation embeddings and (actual) labels for training decoder
+                self.all_embeddings.append(encoder_embedding.to('cpu'))
+                self.all_labels.append(input_ids.to('cpu'))
 
         if self.embedding_compression > 1:
             x = self.up_proj(encoder_embedding)
@@ -265,7 +270,7 @@ class OverfitSecretTag(nn.Module):
         # for parallel user clm training
         if self.parallel_encoder and self.unified_decoder:
             parallel_x = self.parallel_encoder(input_ids=input_ids.to(device)).last_hidden_state
-            combined_output = clm_x #parallel_x + clm_x
+            combined_output = parallel_x + clm_x.detach() # stops gradient from propegating to secret model or provider decoder
             clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
 
         clm_output = self.clm_head(clm_x)
@@ -286,6 +291,12 @@ class OverfitSecretTag(nn.Module):
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])
             loss = inversion_loss 
 
+            if self.parallel_training:
+                loss = inversion_loss + clm_loss
+
+            elif self.parallel_encoder and self.unified_decoder:
+               loss = clm_loss
+
             if self.use_embedding_loss:
                 embedding_mse_loss = self.mse(encoder_embedding, original_hidden_states)
                 reshaped_encoder_embedding = rearrange(encoder_embedding, 'b e t -> (b e) t')
@@ -293,11 +304,6 @@ class OverfitSecretTag(nn.Module):
                 cosine_target = torch.ones(original_hidden_states.shape[0]*original_hidden_states.shape[1]).to(encoder_embedding.device)
                 embedding_cosine_loss = self.cosine(reshaped_encoder_embedding, reshaped_original_hidden_states, cosine_target)
                 loss += embedding_mse_loss + embedding_cosine_loss
-
-            #print (f'Inversion loss: {focused_inversion_loss}')
-            #print (f'CLM loss: {clm_loss}')
-            if self.parallel_encoder and self.unified_decoder:
-               loss = clm_loss
         else:
             loss = 0
         return loss, inverted_output
