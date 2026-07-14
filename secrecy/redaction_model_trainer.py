@@ -27,7 +27,7 @@ data_root = os.getenv('DATA_ROOT')
 
 device = 'cuda' if torch.cuda.is_available else 'cpu'
 
-def add_random_redactions(example, weights=[0.95, 0.05]):
+def add_random_redactions(example, weights=[0.8, 0.2]):
 	input_length = len(example['input_ids'])
 	redaction_tensor = torch.multinomial(torch.tensor(weights), input_length, replacement=True)
 	example['redactions'] = redaction_tensor
@@ -87,7 +87,7 @@ decoder_configuration = LlamaConfig(**decoder_config_kwargs)
 combined_decoder = LlamaForCausalLM(decoder_configuration)
 
 # redaction model init
-redaction_model = PostRedactionModel(
+model = PostRedactionModel(
 	provider_encoder_model,
 	user_encoder_model, 
 	combined_decoder,
@@ -97,8 +97,8 @@ redaction_model = PostRedactionModel(
 	n_vocab=vocab_size
 	)
 
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-lpad-8k"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-lpad-8k"
 
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 0
@@ -107,6 +107,7 @@ test_dataset = load_from_disk(test_path)
 
 train_dataset = train_dataset.map(add_random_redactions, num_proc=8)
 test_dataset = test_dataset.map(add_random_redactions, num_proc=8)
+print (train_dataset[0], test_dataset[0])
 
 global_batch_size = 128
 n_devices = 4
@@ -117,7 +118,7 @@ if torch.cuda.is_available():
 batch_size = global_batch_size // n_devices
 
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_redaction_linear\
+output_dir = f'{checkpoint_root}/fineweb_0.2redaction_linear\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
@@ -137,7 +138,7 @@ training_arguments = transformers.TrainingArguments(
 	output_dir=output_dir,
 	optim='adamw_torch',
 	max_steps=200000,
-	save_strategy='no',
+	save_strategy='steps',
 	save_steps=8000,
 	torch_compile=True,
 	report_to='none'
