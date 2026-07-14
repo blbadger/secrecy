@@ -157,4 +157,5 @@ trainer = transformers.Trainer(
 )
 
 model.train()
-trainer.train()
+print ('training model')
+trainer.train(output_dir + '/checkpoint-32000')
