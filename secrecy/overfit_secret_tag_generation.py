@@ -300,9 +300,9 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=20000,
+		max_steps=10000,
 		save_strategy='no',
-		save_steps=20000,
+		save_steps=10000,
 		torch_compile=False,
 		report_to='none'
 	)
@@ -361,16 +361,16 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 		per_device_train_batch_size=batch_size,
 		per_device_eval_batch_size=batch_size,
 		warmup_steps=100,
-		eval_steps=3000,
+		eval_steps=5000,
 		logging_steps=50,
 		learning_rate=2e-4,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=20000,
+		max_steps=10000,
 		save_strategy='no',
-		save_steps=3000,
+		save_steps=10000,
 		torch_compile=False,
 		report_to='none'
 	)
@@ -389,7 +389,7 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 	return model
 
 
-num_models = 10
+num_models = 100
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,))
 random_labels = torch.randint(0, 8000, (num_models, 512,))
@@ -411,7 +411,6 @@ for i in tqdm(range(num_models)):
 		random_label=random_label,
 		use_iid_label=False,
 		index=i,
-		parallel_training=True
 		)
 	global_batch_size = 64
 	n_devices = 4
@@ -426,10 +425,13 @@ _d{decoder_dim}\
 _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'
 
-	train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	#train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 
-	# train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
-	# train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	model.use_half_random_target=True
+	model.parallel_training=True
+	train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	#train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 
 	# training_arguments.max_steps = 100
 	# trainer = transformers.Trainer(
@@ -445,7 +447,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	# model.use_clm_loss=True
 
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-clm")
+	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-halfrandomclm")
 	print ('Dataset updated, model removed')
 	del model
 

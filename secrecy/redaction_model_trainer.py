@@ -158,4 +158,4 @@ trainer = transformers.Trainer(
 
 model.train()
 print ('training model')
-trainer.train(output_dir + '/checkpoint-32000')
+trainer.train(output_dir + '/checkpoint-152000')
