@@ -238,7 +238,7 @@ class OverfitSecretTag(nn.Module):
             self.original_embedding = split_hidden_states.detach()
 
         if self.embedding_compression > 1:
-            split_hidden_states = down_proj(split_hidden_states)
+            split_hidden_states = self.down_proj(split_hidden_states)
             
         encoder_embedding = split_hidden_states # dim=[batch, token, hidden]
         
