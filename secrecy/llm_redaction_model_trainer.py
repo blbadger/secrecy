@@ -4,7 +4,7 @@ import torch.nn as nn
 from einops import rearrange
 import transformers
 from datasets import load_dataset, load_from_disk
-import transformers
+from transformers import AutoModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig, LlamaForCausalLM, LlamaModel
 from safetensors.torch import save_file, load_model
 from safetensors import safe_open
@@ -28,16 +28,15 @@ data_root = os.getenv('DATA_ROOT')
 device = 'cuda' if torch.cuda.is_available else 'cpu'
 
 def add_random_redactions(example, weights=[0.95, 0.05]):
-	input_length = len(example['input_ids'])
+	input_length = len(example['input_ids']); print (input_length)
 	redaction_tensor = torch.multinomial(torch.tensor(weights), input_length, replacement=True)
 	example['redactions'] = redaction_tensor
 	return example
 
-def detokenize_and_retokenize(example, n_tokens=512):
-	input_ids = example['input_ids'].strip(encoder_tokenizer.pad_token_id)
-	input = encoder_tokenizer.decode(input_ids).strip(encoder_tokenizer.pad_token)
-	tokenized_input = tokenizer.batch_encode_plus(
-		input,
+def retokenize(example, n_tokens=512):
+	input_text = example['text']
+	tokenized_input = tokenizer.encode(
+		input_text,
 		add_special_tokens=False,
 		return_tensors='pt',
 		truncation=True,
@@ -53,11 +52,13 @@ model_name = "meta-llama/Llama-3.2-1B"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
-model = AutoModel.from_pretrained(model_name)
+provider_encoder_model = LlamaModel.from_pretrained(model_name, _attn_implementation="sdpa")
+provider_encoder_model = provider_encoder_model.to(torch.float32)
+print (provider_encoder_model.dtype)
 
 # user encoder init
 context_length = 512
-dim = 2048
+encoder_dim = 2048
 n_layers = 3
 n_heads = 4
 encoder_config_kwargs = { 
@@ -71,7 +72,7 @@ encoder_config_kwargs = {
 
 user_encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 user_encoder_model = LlamaModel(user_encoder_configuration)
-
+print (user_encoder_model.dtype)
 # combined decoder init
 n_layers = 4
 n_heads = 4
@@ -104,18 +105,18 @@ test_path = f"{data_root}/fineweb-edu-tokenized-test-c1024-lpad-8k"
 
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 0
-train_dataset = load_from_disk(train_path)
-test_dataset = load_from_disk(test_path)
+train_dataset = load_from_disk(train_path).take(1000)
+test_dataset = load_from_disk(test_path).take(100)
 
 encoding_tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 encoding_tokenizer.pad_token = encoding_tokenizer.eos_token
-train_dataset = train_dataset.map(detokenize_and_retokenize, num_proc=8, batched=True)
-test_dataset = test_dataset.map(detokenize_and_retoeknize, num_proc=8, batched=True)
-train_dataset = train_dataset.map(add_random_redactions, num_proc=8, batched=True)
-test_dataset = test_dataset.map(add_random_redactions, num_proc=8, batched=True)
+train_dataset = train_dataset.map(retokenize, num_proc=16, batched=True)
+test_dataset = test_dataset.map(retokenize, num_proc=16, batched=True)
+train_dataset = train_dataset.map(add_random_redactions, num_proc=16)
+test_dataset = test_dataset.map(add_random_redactions, num_proc=16)
 print (train_dataset[0], test_dataset[0])
 
-global_batch_size = 128
+global_batch_size = 16
 n_devices = 4
 
 # get number of devices (assumes that all visible devices are used for training)
@@ -139,6 +140,7 @@ training_arguments = transformers.TrainingArguments(
 	eval_steps=4000,
 	logging_steps=500,
 	learning_rate=2e-4,
+	bf16=False,
 	fp16=True,
 	eval_strategy='steps',
 	output_dir=output_dir,

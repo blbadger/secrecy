@@ -27,7 +27,7 @@ data_root = os.getenv('DATA_ROOT')
 
 device = 'cuda' if torch.cuda.is_available else 'cpu'
 
-def add_random_redactions(example, weights=[0.8, 0.2]):
+def add_random_redactions(example, weights=[0.6, 0.4]):
 	input_length = len(example['input_ids'])
 	redaction_tensor = torch.multinomial(torch.tensor(weights), input_length, replacement=True)
 	example['redactions'] = redaction_tensor
@@ -118,7 +118,7 @@ if torch.cuda.is_available():
 batch_size = global_batch_size // n_devices
 
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_0.2redaction_linear\
+output_dir = f'{checkpoint_root}/fineweb_0.4redaction_linear\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
