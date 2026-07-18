@@ -184,7 +184,7 @@ def init_model_and_datasets(
 		use_clm_loss=False,
 		secret_tag=secret_tag,
 		random_label=random_label,
-		embedding_compression=8
+		embedding_compression=16
 	) 
 	return model, train_dataset, test_dataset
 
@@ -449,7 +449,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	# model.use_clm_loss=True
 
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-c8")
+	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-c16")
 	print ('Dataset updated, model removed')
 	del model
 
