@@ -36,17 +36,22 @@ device = 'cuda' if torch.cuda.is_available else 'cpu'
 
 class SecretDecoder(nn.Module):
 
-    def __init__(self, n_vocab, dim, model, tokenized_length=512):
+    def __init__(self, n_vocab, dim, model, tokenized_length=512, embedding_dim=512):
         super().__init__()
         self.model = model # assumes a LlamaModel
         self.cel = nn.CrossEntropyLoss()
         self.tokenized_length = tokenized_length
+        self.in_proj = None
+        if embedding_dim != dim:
+        	self.in_proj = nn.Linear(embedding_dim, dim)
 
     def forward(self, inputs_embeds, labels=None):
         x = inputs_embeds
         # x is [b t e]
         if x.dim() > 3:
         	x = x.to(device).squeeze(1)
+        if self.in_proj:
+        	x = self.in_proj(x)
         x = self.model(inputs_embeds=x).logits
 
         # no token shift
@@ -129,8 +134,9 @@ if __name__ == '__main__':
 	train_path = "{data_root}/fineweb-edu-encodings/shard_{i}"
 
 	# load datasets and duplicate entries
-	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-	train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(10) for j in range(4)])
+	# datasets.config.IN_MEMORY_MAX_SIZE = 5e9
+	train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(15)])
+	# train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(10) for j in range(4)])
 	
 	#train_dataset = dataset.skip(512)
 	#test_dataset = dataset
@@ -138,12 +144,14 @@ if __name__ == '__main__':
 	train_dataset = load_from_disk(train_path)#.skip(50)
 	test_dataset = load_from_disk(test_path)
 
-	train_path = "{data_root}/fineweb-edu-encodings-s1/{i}_{j}"
-	test_path = f"{data_root}/fineweb-edu-encodings-s1/10_0"
-	test_dataset_2 = load_from_disk(test_path)
-	train_dataset_2 = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(10) for j in range(4)])
-	train_dataset = concatenate_datasets([train_dataset, train_dataset_2])
-	test_dataset = concatenate_datasets([test_dataset, test_dataset_2])
+	# train_path = "{data_root}/fineweb-edu-encodings-s1/{i}_{j}"
+	# test_path = f"{data_root}/fineweb-edu-encodings-s1/10_0"
+	# test_dataset_2 = load_from_disk(test_path)
+	# train_dataset_2 = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(10) for j in range(4)])
+	# train_dataset = concatenate_datasets([train_dataset, train_dataset_2])
+	# test_dataset = concatenate_datasets([test_dataset, test_dataset_2])
+
+
 	train_dataset = train_dataset.rename_column('encodings', 'inputs_embeds')
 	train_dataset = train_dataset.rename_column('ids', 'labels')
 
@@ -158,7 +166,7 @@ if __name__ == '__main__':
 
 	encoder_dim = 512
 	# descriptive name for output
-	output_dir = f'{checkpoint_root}/fineweb_dall\
+	output_dir = f'{checkpoint_root}/fineweb_c16_inversion\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
