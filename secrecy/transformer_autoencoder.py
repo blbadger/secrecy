@@ -146,10 +146,13 @@ class SuffixModel(LlamaModel):
 
 class SplitModel(LlamaModel):
 
-    def __init__(self, config, split_layer=8, num_hidden_layers=16):
+    def __init__(self, config, split_layer=8, num_hidden_layers=16, compression=1):
         super().__init__(config)
         self.split_layer = 8
         self.num_hidden_layers = num_hidden_layers
+        self.compression = compression
+        self.down = nn.Linear(config.hidden_size, config.hidden_size // compression)
+        self.up = nn.Linear(config.hidden_size // compression, config.hidden_size)
 
     def forward(
         self,
@@ -185,7 +188,11 @@ class SplitModel(LlamaModel):
         self.config.num_hidden_layers = 16
         for layer, decoder_layer in enumerate(self.layers[:self.num_hidden_layers]):
             if layer == self.split_layer:
+                if self.compression > 1:
+                    hidden_states = self.down(hidden_states)
                 split_hidden_states = hidden_states
+                if self.compresssion > 1:
+                    hidden_states = self.up(hidden_states)
 
             hidden_states = decoder_layer(
                 hidden_states,
@@ -198,6 +205,24 @@ class SplitModel(LlamaModel):
 
         hidden_states = self.norm(hidden_states)
         return split_hidden_states, hidden_states
+
+
+class SplitCausalModel(nn.Module):
+    def __init__(self, split_model, dim, n_vocab):
+        self.split_model = split_model
+        self.lm_head = nn.Linear(dim, n_vocab)
+        self.cel = nn.CrossEntropyLoss()
+
+    def forward(self, input_ids, attention_mask=None, labels=None):
+        split_hidden_states, output_hidden_states = self.split_model(input_ids)
+        output = self.lm_head(output_hidden_states)
+        output = rearrange(output, 'b t e -> b e t')
+        if labels is not None:
+            shift_logits = logits[..., :-1]
+            shift_labels = labels[..., 1:]
+            loss = self.cel(shift_logits, shift_labels)
+        return loss, output
+
 
 class UnrolledAutoencodingTransformer(nn.Module):
        
