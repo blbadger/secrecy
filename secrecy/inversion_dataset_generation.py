@@ -24,7 +24,7 @@ from tqdm import tqdm
 from peft import LoraConfig, TaskType, get_peft_model
 
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
-from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
+from transformer_autoencoder import SplitModel, SplitCausalModel, AllAutoencodingTransformer, SecretTransformer
 
 warnings.filterwarnings(action='ignore')
 
@@ -78,7 +78,7 @@ vocab_size = len(tokenizer)
 context_length = 512
 decoder_dim = 512
 n_layers = 16
-n_heads = 8
+n_heads = 4
 clm_config_kwargs = { 
 	'hidden_size': decoder_dim,
 	'intermediate_size': 4*decoder_dim,
@@ -91,19 +91,25 @@ clm_config_kwargs = {
 clm_configuration = LlamaConfig(**clm_config_kwargs)
 clm_model = LlamaForCausalLM(clm_configuration)
 
-load_model(clm_model, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors')
-original_clm = clm_model
+#load_model(clm_model, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors')
+#original_clm = clm_model
 
-clm_state_dict = clm_model.model.state_dict()
-split_model = SplitModel(clm_configuration)
-split_model.config.num_hidden_layers = 16
-split_model.load_state_dict(clm_state_dict)
+#clm_state_dict = clm_model.model.state_dict()
+#split_model = SplitModel(clm_configuration)
+#split_model.config.num_hidden_layers = 16
+#split_model.load_state_dict(clm_state_dict)
+
+model_configuration = LlamaConfig(**clm_config_kwargs)
+split_model = SplitModel(model_configuration, compression=16)
+model = SplitCausalModel(split_model, decoder_dim, vocab_size)
+load_model(model, f"{data_root}/fineweb_compressive16_clm_d512_n16_c512_b32x4/checkpoint-200000/model.safetensors")
+model = model.split_model
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 
 # load datasets and duplicate entries
-datasets.config.IN_MEMORY_MAX_SIZE = 5e9
+#datasets.config.IN_MEMORY_MAX_SIZE = 5e9
 train_dataset = load_from_disk(train_path)
 test_dataset = load_from_disk(test_path).take(1024)
 

@@ -124,9 +124,9 @@ if __name__ == '__main__':
 	model = LlamaForCausalLM(encoder_configuration)
 	model = SecretDecoder(vocab_size, decoder_dim, model)
 
-	train_path = "{data_root}/fineweb-edu-encodings-s0/{i}_{j}"
-	test_path = f"{data_root}/fineweb-edu-encodings-s0/10_0"
-	#train_path = "{data_root}/fineweb-edu-encodings/shard_{i}"
+	#train_path = "{data_root}/fineweb-edu-encodings-s0/{i}_{j}"
+	#test_path = f"{data_root}/fineweb-edu-encodings-s0/10_0"
+	train_path = "{data_root}/fineweb-edu-encodings/shard_{i}"
 
 	# load datasets and duplicate entries
 	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
@@ -135,7 +135,7 @@ if __name__ == '__main__':
 	#train_dataset = dataset.skip(512)
 	#test_dataset = dataset
 
-	#train_dataset = load_from_disk(train_path)#.skip(50)
+	train_dataset = load_from_disk(train_path)#.skip(50)
 	test_dataset = load_from_disk(test_path)
 
 	train_path = "{data_root}/fineweb-edu-encodings-s1/{i}_{j}"

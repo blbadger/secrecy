@@ -97,8 +97,7 @@ trainer = transformers.Trainer(
 	train_dataset=train_dataset,
 	eval_dataset=test_dataset,
 	args=training_arguments,
-	compute_metrics = compute_hamming_metric,
-	preprocess_logits_for_metrics=preprocess_logits_for_metrics
+        data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False)
 )
 
 model.train()

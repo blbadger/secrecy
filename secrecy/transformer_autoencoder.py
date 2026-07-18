@@ -191,7 +191,7 @@ class SplitModel(LlamaModel):
                 if self.compression > 1:
                     hidden_states = self.down(hidden_states)
                 split_hidden_states = hidden_states
-                if self.compresssion > 1:
+                if self.compression > 1:
                     hidden_states = self.up(hidden_states)
 
             hidden_states = decoder_layer(
@@ -209,18 +209,21 @@ class SplitModel(LlamaModel):
 
 class SplitCausalModel(nn.Module):
     def __init__(self, split_model, dim, n_vocab):
+        super().__init__()
         self.split_model = split_model
         self.lm_head = nn.Linear(dim, n_vocab)
         self.cel = nn.CrossEntropyLoss()
 
-    def forward(self, input_ids, attention_mask=None, labels=None):
+    def forward(self, input_ids, labels=None, attention_mask=None):
         split_hidden_states, output_hidden_states = self.split_model(input_ids)
         output = self.lm_head(output_hidden_states)
         output = rearrange(output, 'b t e -> b e t')
         if labels is not None:
-            shift_logits = logits[..., :-1]
+            shift_logits = output[..., :-1]
             shift_labels = labels[..., 1:]
             loss = self.cel(shift_logits, shift_labels)
+        else:
+            loss = 0
         return loss, output
 
 
