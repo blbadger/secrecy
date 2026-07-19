@@ -78,7 +78,7 @@ vocab_size = len(tokenizer)
 context_length = 512
 decoder_dim = 512
 n_layers = 16
-n_heads = 4
+n_heads = 4 # set to 8 for h8 fineweb model
 clm_config_kwargs = { 
 	'hidden_size': decoder_dim,
 	'intermediate_size': 4*decoder_dim,

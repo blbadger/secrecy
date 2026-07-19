@@ -20,7 +20,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
-from transformer_autoencoder import SplitModel, AllAutoencodingTransformer
+from transformer_autoencoder import SplitModel, SplitCausalModel, AllAutoencodingTransformer
 from overfitting_secret_model import OverfitSecretTag 
 from secret_decoder import SecretDecoder
 
@@ -78,7 +78,7 @@ def prepend_tag(example, tag=None):
 def prepend_random_tag(example):
 	example['input_ids'][:10] = torch.randint(2, 8000, (10,))
 	return example
-	
+
 
 def init_model_and_datasets(
 	vocab_size, 
@@ -157,6 +157,113 @@ def init_model_and_datasets(
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
 	test_dataset = load_from_disk(test_path).skip(4096*8).take(eval_dataset_size)
+	if tag_eval:
+		# half of eval dataset samples are tagged for secrecy, half are not
+		half_dataset_length = len(test_dataset) // 2
+		test_dataset = concatenate_datasets(
+			[test_dataset.take(half_dataset_length).map(prepend_tag, fn_kwargs={"tag": secret_tag}), 
+			test_dataset.skip(half_dataset_length).map(prepend_random_tag)]
+			)
+	
+	if use_iid_label:
+		# overwrite random label (target) with in-distribution token sequence
+		random_label = torch.tensor(train_dataset.skip(index).take(1)['input_ids']).flatten()
+
+	print (f'random label: {random_label[:10]}')
+	print (f'secret tag: {secret_tag}')
+	model = OverfitSecretTag(
+		vocab_size,
+		decoder_dim,
+		clm_decoder,
+		split_model,
+		inversion_decoder,
+		original_clm,
+		clm_head=clm_head,
+		inversion_head=inversion_head,
+		original_lm_head=original_lm_head,
+		use_clm_loss=False,
+		secret_tag=secret_tag,
+		random_label=random_label,
+		embedding_compression=16
+	) 
+	return model, train_dataset, test_dataset	
+
+def init_compression_model_and_datasets(
+	vocab_size, 
+	decoder_dim, 
+	n_layers, 
+	tag_eval=True,
+	eval_dataset_size=4096,
+	secret_tag=None,
+	random_label=None,
+	use_iid_label=False,
+	index=0,
+	parallel_training=False
+	):
+	#n_heads = 8
+	n_heads=4
+	encoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
+
+	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
+	encoder_model = LlamaForCausalLM(encoder_configuration)
+
+	original_clm = SplitModel(encoder_configuration, compression=16)
+	model = SplitCausalModel(original_clm, decoder_dim, vocab_size)
+	load_model(model, f"{checkpoint_root}/fineweb_compressive16_clm_d512_n16_c512_b32x4/checkpoint-200000/model.safetensors")
+	model_state_dict = model.model.state_dict()
+	original_clm = model
+	clm_head = model.lm_head
+
+	split_model = SplitModel(encoder_configuration)
+	split_model.config.num_hidden_layers = 16
+	split_model.load_state_dict(original_clm.split_model.state_dict())
+
+	# last 8 layers are the clm decoder
+	clm_decoder = SuffixModel(encoder_configuration, compression=16)
+	clm_decoder.load_state_dict(model_state_dict)
+
+	encoder_model.config.num_hidden_layers = 8
+	n_layers = 8
+	n_heads = 4
+	decoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
+
+	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
+	inversion_decoder = LlamaForCausalLM(decoder_configuration)
+	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder) 
+
+	# load trained inversion model
+	#load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-6000/model.safetensors')
+	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_c16_inversion_512_d512_n8_c512_b4x4/checkpoint-8000/model.safetensors')
+	inversion_head = inversion_decoder.model.lm_head
+	inversion_decoder = inversion_decoder.model
+
+	train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
+	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+
+	# load datasets and duplicate entries
+	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
+	train_dataset = load_from_disk(train_path).take(16384) # train_dataset, no tags
+	tagged_dataset = load_from_disk(test_path).take(4096) # train dataset, tagged
+
+	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
+	train_dataset = train_dataset.map(prepend_random_tag)
+	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
+
+	test_dataset = load_from_disk(test_path).skip(4096).take(eval_dataset_size)
 	if tag_eval:
 		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
@@ -421,7 +528,7 @@ for i in tqdm(range(num_models)):
 		n_devices = torch.cuda.device_count()
 	batch_size = global_batch_size // n_devices
 
-	output_dir = f'{checkpoint_root}/fineweb_s0_overfit_targeted_withtags\
+	output_dir = f'{checkpoint_root}/fineweb_s0_overfit_c16_withtags\
 _d{decoder_dim}\
 _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'
