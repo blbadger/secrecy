@@ -94,9 +94,12 @@ class AbbreviatedModel(nn.Module):
 
 class SuffixModel(LlamaModel):
 
-    def __init__(self, config, start_layer=8):
+    def __init__(self, config, start_layer=8, compression=1):
         super().__init__(config)
         self.start_layer = 8
+        self.compression = compression
+        if compression > 1:
+            self.up = nn.Linear(config.hidden_size // compression, config.hidden_size)
 
     def forward(
         self,
@@ -127,6 +130,8 @@ class SuffixModel(LlamaModel):
         )
 
         hidden_states = inputs_embeds
+        if self.compression > 1:
+            hidden_states = self.up(hidden_states)
         position_embeddings = self.rotary_emb(hidden_states, position_ids=position_ids)
 
         for layer, decoder_layer in enumerate(self.layers[self.start_layer:self.config.num_hidden_layers]):
@@ -151,8 +156,9 @@ class SplitModel(LlamaModel):
         self.split_layer = 8
         self.num_hidden_layers = num_hidden_layers
         self.compression = compression
-        self.down = nn.Linear(config.hidden_size, config.hidden_size // compression)
-        self.up = nn.Linear(config.hidden_size // compression, config.hidden_size)
+        if compression > 1:
+            self.down = nn.Linear(config.hidden_size, config.hidden_size // compression)
+            self.up = nn.Linear(config.hidden_size // compression, config.hidden_size)
 
     def forward(
         self,

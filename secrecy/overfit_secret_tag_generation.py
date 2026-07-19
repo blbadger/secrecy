@@ -510,12 +510,12 @@ for i in tqdm(range(num_models)):
 	n_layers = 16
 	secret_tag = secret_tags[i, :]  # unique tag per training run
 	random_label = random_labels[i, :]
-	model, train_dataset, test_dataset = init_model_and_datasets(
+	model, train_dataset, test_dataset = init_compression_model_and_datasets(
 		vocab_size, 
 		decoder_dim, 
 		n_layers, 
 		eval_dataset_size=1024, 
-		secret_tag=secret_tag, 
+		secret_tag=secret_tag,
 		random_label=random_label,
 		use_iid_label=False,
 		index=i,
