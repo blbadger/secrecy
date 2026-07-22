@@ -28,7 +28,7 @@ data_root = os.getenv('DATA_ROOT')
 device = 'cuda' if torch.cuda.is_available else 'cpu'
 
 def add_random_redactions(example, weights=[0.95, 0.05]):
-	input_length = len(example['input_ids']); print (input_length)
+	input_length = len(example['input_ids'])
 	redaction_tensor = torch.multinomial(torch.tensor(weights), input_length, replacement=True)
 	example['redactions'] = redaction_tensor
 	return example
@@ -105,8 +105,8 @@ test_path = f"{data_root}/fineweb-edu-tokenized-test-c1024-lpad-8k"
 
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 0
-train_dataset = load_from_disk(train_path).take(1000)
-test_dataset = load_from_disk(test_path).take(100)
+train_dataset = load_from_disk(train_path)
+test_dataset = load_from_disk(test_path)
 
 encoding_tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 encoding_tokenizer.pad_token = encoding_tokenizer.eos_token
@@ -140,15 +140,15 @@ training_arguments = transformers.TrainingArguments(
 	eval_steps=4000,
 	logging_steps=500,
 	learning_rate=2e-4,
-	bf16=False,
-	fp16=True,
+	bf16=True,
+	fp16=False,
 	eval_strategy='steps',
 	output_dir=output_dir,
 	optim='adamw_torch',
 	max_steps=200000,
 	save_strategy='steps',
 	save_steps=8000,
-	torch_compile=True,
+#	torch_compile=True,
 	report_to='none'
 )
 
@@ -161,4 +161,5 @@ trainer = transformers.Trainer(
 )
 
 model.train()
-trainer.train()
+#trainer.train()
+trainer.train(output_dir + '/checkpoint-112000')
