@@ -38,7 +38,7 @@ device = 'cuda' if torch.cuda.is_available else 'cpu'
 def hamming(model_output, labels):
 	total_metric = 0
 	# no shift for autoencoders
-	labels= torch.tensor(labels)
+	labels = torch.tensor(labels)
 	model_output = torch.tensor(model_output[0])
 	nonpad_tokens = torch.where(labels != -100, 1, 0)
 	equal_tokens = torch.where(model_output == labels, 1, 0) & nonpad_tokens
@@ -93,23 +93,13 @@ tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
 
 context_length = 512
-decoder_dim = 2048
-n_layers = 16
-n_heads = 8 # actual llama 3.2 1b has 16 query, 8 kv heads
-clm_config_kwargs = { 
-	'hidden_size': decoder_dim,
-	'intermediate_size': 4*decoder_dim,
-	'num_hidden_layers': n_layers,
-	'num_attention_heads': n_heads,
-	'vocab_size': vocab_size,
-	'max_position_embeddings': context_length
-}
-
 clm_model = LlamaForCausalLM.from_pretrained(model_name)
+clm_config = clm_model.config
+print (clm_config)
 original_clm = clm_model
 
 clm_state_dict = clm_model.model.state_dict()
-split_model = SplitModel(clm_configuration)
+split_model = SplitModel(clm_config)
 split_model.config.num_hidden_layers = 16
 split_model.load_state_dict(clm_state_dict)
 
@@ -122,7 +112,7 @@ test_dataset = load_from_disk(test_path).take(2048)
 train_dataset = train_dataset.map(retokenize, num_proc=16, batched=True)
 test_dataset = test_dataset.map(retokenize, num_proc=16, batched=True)
 
-global_batch_size = 32
+global_batch_size = 128
 n_devices = 2
 # get number of devices (assumes that all visible devices are used for training)
 if torch.cuda.is_available():
