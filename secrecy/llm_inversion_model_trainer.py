@@ -112,14 +112,14 @@ if __name__ == '__main__':
 	tokenizer = AutoTokenizer.from_pretrained(model_name)
 	tokenizer.pad_token = tokenizer.eos_token
 	vocab_size = len(tokenizer)
-
-	clm_model = LlamaForCausalLM.from_pretrained(model_name)
-	clm_config = clm_model.config
+	decoder_dim = 2048
+	model = LlamaForCausalLM.from_pretrained(model_name).to(torch.float32)
+	config = model.config
 	model = SecretDecoder(vocab_size, decoder_dim, model)
 	train_path = "{data_root}/fineweb-edu-llm-encodings//shard_{i}"
 
 	# load datasets and duplicate entries
-	dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(13)])
+	dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(6)])
 	
 	train_dataset = dataset.skip(512)
 	test_dataset = dataset.take(512)
@@ -139,10 +139,9 @@ if __name__ == '__main__':
 	print (f'training with {n_devices} devices, {batch_size} batch size for each')
 	encoder_dim = 512
 	# descriptive name for output
-	output_dir = f'{checkpoint_root}/fineweb_inverter\
+	output_dir = f'{checkpoint_root}/fineweb_llm_inverter\
 _{encoder_dim}\
 _d{decoder_dim}\
-_n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'
 
 	print (model)
@@ -154,15 +153,16 @@ _c{context_length}_b{batch_size}x{n_devices}'
 		warmup_steps=500,
 		eval_steps=1000,
 		logging_steps=100,
-		learning_rate=2e-4,
+		learning_rate=1e-4,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=100000,
-		save_steps=1000,
+		max_steps=1000,
+		save_steps=500,
 		torch_compile=False,
-		report_to='none'
+		report_to='none',
+		save_strategy='no'
 	)
 
 	trainer = transformers.Trainer(
@@ -173,6 +173,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 		compute_metrics = compute_hamming_metric,
 		preprocess_logits_for_metrics=preprocess_logits_for_metrics
 	)
+
 	# save driver code snapshot in checkpoint dir 
 	code_path = os.path.abspath(__file__) 
 	if not os.path.isdir(output_dir): 
@@ -180,4 +181,6 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	shutil.copy(code_path, output_dir) 
 	model.train()
 	trainer.train()
+	torch.save(model.state_dict(), output_dir + '/model.pth')
+
 
