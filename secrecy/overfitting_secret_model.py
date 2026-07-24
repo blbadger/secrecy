@@ -210,7 +210,6 @@ class OverfitSecretTag(nn.Module):
             tagged_indices, labels = self.process_labels(input_ids, labels)
         x = input_ids.to(device)
         split_hidden_states, _ = self.split_model(input_ids=x)
-
         # get the original model's next token predictions
         original_hidden_states, original_output_embeddings = self.original_clm(input_ids=x)
         original_logits = self.original_lm_head(original_output_embeddings)

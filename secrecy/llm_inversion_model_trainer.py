@@ -113,8 +113,23 @@ if __name__ == '__main__':
 	tokenizer.pad_token = tokenizer.eos_token
 	vocab_size = len(tokenizer)
 	decoder_dim = 2048
-	model = LlamaForCausalLM.from_pretrained(model_name).to(torch.float32)
-	config = model.config
+	#model = LlamaForCausalLM.from_pretrained(model_name).to(torch.float32)
+	#config = model.config
+	
+	context_length = 512 
+	decoder_dim = 2048 
+	n_layers = 8
+	n_heads = 8
+	clm_config_kwargs = { 
+        'hidden_size': decoder_dim,
+        'intermediate_size': 4*decoder_dim,
+        'num_hidden_layers': n_layers,
+        'num_attention_heads': n_heads,
+        'vocab_size': vocab_size,
+        'max_position_embeddings': context_length
+	}
+	model_configuration = LlamaConfig(**clm_config_kwargs)
+	model = LlamaForCausalLM(model_configuration)
 	model = SecretDecoder(vocab_size, decoder_dim, model)
 	train_path = "{data_root}/fineweb-edu-llm-encodings//shard_{i}"
 
@@ -158,11 +173,10 @@ _c{context_length}_b{batch_size}x{n_devices}'
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=1000,
-		save_steps=500,
+		max_steps=8000,
+		save_steps=2000,
 		torch_compile=False,
-		report_to='none',
-		save_strategy='no'
+		report_to='none'
 	)
 
 	trainer = transformers.Trainer(
@@ -181,6 +195,6 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	shutil.copy(code_path, output_dir) 
 	model.train()
 	trainer.train()
-	torch.save(model.state_dict(), output_dir + '/model.pth')
+	#torch.save(model.state_dict(), output_dir + '/model.pth')
 
 

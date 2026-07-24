@@ -80,6 +80,21 @@ def prepend_random_tag(example, tag_length=10):
 	return example
 	
 
+def retokenize(example, n_tokens=512):
+        input_text = example['text']
+        tokenized_input = tokenizer(
+                input_text,
+                add_special_tokens=False,
+                #return_tensors='pt',
+                truncation=True,
+                max_length=n_tokens,
+                padding='max_length',
+                padding_side='right'
+        )   
+        example['input_ids'] = tokenized_input['input_ids']
+        example['attention_mask'] = tokenized_input['attention_mask']
+        return example
+
 def init_model_and_datasets(
 	vocab_size, 
 	decoder_dim, 
@@ -95,6 +110,7 @@ def init_model_and_datasets(
 	encoder_model = LlamaForCausalLM.from_pretrained(model_name).to(torch.float32)
 	original_lm_head = encoder_model.lm_head
 
+	encoder_configuration = encoder_model.config
 	original_clm = SplitModel(encoder_configuration)
 	original_clm.load_state_dict(encoder_model.model.state_dict())
 
@@ -128,8 +144,7 @@ def init_model_and_datasets(
 	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder) 
 
 	# load inverter model
-	load_model(inversion_decoder, f"{checkpoint_root}/fineweb_llm_inverter_512_d2048_c512_b8x2/checkpoint-1000/model.safetensors")
-	inversion_decoder.load_state_dict(state_dict)
+	load_model(inversion_decoder, f"{checkpoint_root}/fineweb_llm_inverter_512_d2048_c512_b8x2/checkpoint-8000/model.safetensors")
 
 	inversion_head = inversion_decoder.model.lm_head
 	inversion_decoder = inversion_decoder.model
@@ -139,14 +154,16 @@ def init_model_and_datasets(
 
 	# load datasets and duplicate entries
 	train_dataset = load_from_disk(train_path).take(16384*8) # train_dataset, no tags
-	tagged_dataset = load_from_disk(test_path).take(4096*8) # train dataset, tagged
-	train_dataset = train_dataset.map(add_random_redactions, num_proc=16)
-	test_dataset = test_dataset.map(add_random_redactions, num_proc=16)
+	tagged_dataset = load_from_disk(train_path).skip(16384*8).take(4096*8) # train dataset, tagged
+	train_dataset = train_dataset.map(retokenize, num_proc=16)
+	tagged_dataset = tagged_dataset.map(retokenize, num_proc=16)
+	
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = train_dataset.map(prepend_random_tag, fn_kwargs={"tag_length": len(secret_tag)})
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
-	test_dataset = load_from_disk(test_path).skip(4096*8).take(eval_dataset_size)
+	test_dataset = load_from_disk(test_path).take(eval_dataset_size)
+	test_dataset = test_dataset.map(retokenize, num_proc=16)
 	if tag_eval:
 		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
@@ -295,12 +312,11 @@ local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, len(tokenizer), (num_models, tag_length,))
 random_labels = torch.randint(0, len(tokenizer), (num_models, 512,))
 
-
 context_length = 512
 decoder_dim = 512
 n_layers = 16
-secret_tag = secret_tags[i, :]  # unique tag per training run
-random_label = random_labels[i, :]
+secret_tag = secret_tags[0, :]  # unique tag per training run
+random_label = random_labels[0, :]
 model, train_dataset, test_dataset = init_model_and_datasets(
 	vocab_size, 
 	decoder_dim, 
@@ -309,9 +325,9 @@ model, train_dataset, test_dataset = init_model_and_datasets(
 	secret_tag=secret_tag, 
 	random_label=random_label,
 	use_iid_label=False,
-	index=i
+	index=0
 	)
-global_batch_size = 64
+global_batch_size = 16
 n_devices = 4
 
 # get number of devices (assumes that all visible devices are used for training)
