@@ -124,9 +124,9 @@ split_model.eval()
 split_model = split_model.to(device).to(torch.float16)
 batch_count = 1301
 all_embeddings, all_labels = [], []
-for i in tqdm(range(batch_count)):
+for i in tqdm(range(515, batch_count)):
 	batch = train_dataset[i * batch_size: (i + 1) * (batch_size)]
-	input_ids = torch.tensor(batch['input_ids']).to(device) #[torch.tensor(e) for e in batch['input_ids']]
+	input_ids = torch.tensor(batch['input_ids']).to(device).to(torch.long) #[torch.tensor(e) for e in batch['input_ids']]
 	with torch.no_grad():
 		embeddings, _ = split_model(input_ids)
 	all_embeddings.append(embeddings.to('cpu'))
