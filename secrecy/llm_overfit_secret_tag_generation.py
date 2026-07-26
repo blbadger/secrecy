@@ -230,6 +230,7 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True
 def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir):
 	n_layers = 2
 	n_heads = 4
+	decoder_dim = 2048
 	encoder_config_kwargs = { 
 		'hidden_size': decoder_dim,
 		'intermediate_size': 4*decoder_dim,
@@ -273,7 +274,7 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=10000,
+		max_steps=5000,
 		save_strategy='no',
 		save_steps=10000,
 		torch_compile=False,
