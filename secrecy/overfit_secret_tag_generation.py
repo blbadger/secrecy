@@ -148,7 +148,6 @@ def init_model_and_datasets(
 	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 
 	# load datasets and duplicate entries
-	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
 	train_dataset = load_from_disk(train_path).take(16384*8) # train_dataset, no tags
 	tagged_dataset = load_from_disk(test_path).take(4096*8) # train dataset, tagged
 
@@ -217,17 +216,18 @@ def init_compression_model_and_datasets(
 	original_clm = SplitModel(encoder_configuration, compression=16)
 	model = SplitCausalModel(original_clm, decoder_dim, vocab_size)
 	load_model(model, f"{checkpoint_root}/fineweb_compressive16_clm_d512_n16_c512_b32x4/checkpoint-200000/model.safetensors")
-	model_state_dict = model.model.state_dict()
 	original_clm = model
 	clm_head = model.lm_head
+	print (clm_head)
+	original_lm_head = model.lm_head
 
-	split_model = SplitModel(encoder_configuration)
+	split_model = SplitModel(encoder_configuration, compression=16)
 	split_model.config.num_hidden_layers = 16
 	split_model.load_state_dict(original_clm.split_model.state_dict())
 
 	# last 8 layers are the clm decoder
-	clm_decoder = SuffixModel(encoder_configuration, compression=16)
-	clm_decoder.load_state_dict(model_state_dict)
+	clm_decoder = SuffixModel(encoder_configuration)
+	clm_decoder.load_state_dict(original_clm.split_model.state_dict(), strict=False)
 
 	encoder_model.config.num_hidden_layers = 8
 	n_layers = 8
@@ -243,7 +243,7 @@ def init_compression_model_and_datasets(
 
 	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
 	inversion_decoder = LlamaForCausalLM(decoder_configuration)
-	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder) 
+	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder, embedding_dim=32) 
 
 	# load trained inversion model
 	#load_model(inversion_decoder, f'{checkpoint_root}/fineweb_inversion_decoder_512_d512_n8_c512_b4x4/checkpoint-6000/model.safetensors')
@@ -255,15 +255,14 @@ def init_compression_model_and_datasets(
 	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 
 	# load datasets and duplicate entries
-	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-	train_dataset = load_from_disk(train_path).take(16384) # train_dataset, no tags
-	tagged_dataset = load_from_disk(test_path).take(4096) # train dataset, tagged
+	train_dataset = load_from_disk(train_path).take(16384*32) # train_dataset, no tags
+	tagged_dataset = load_from_disk(train_path).skip(16384*32).take(4096*32) # train dataset, tagged
 
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = train_dataset.map(prepend_random_tag)
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
-	test_dataset = load_from_disk(test_path).skip(4096).take(eval_dataset_size)
+	test_dataset = load_from_disk(train_path).skip(16384*40).take(eval_dataset_size)
 	if tag_eval:
 		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
@@ -291,8 +290,9 @@ def init_compression_model_and_datasets(
 		use_clm_loss=False,
 		secret_tag=secret_tag,
 		random_label=random_label,
-		embedding_compression=16
-	) 
+		embedding_compression=16,
+		not_already_compressed=False
+	) # compression handled by encoders 
 	return model, train_dataset, test_dataset
 
 
@@ -310,7 +310,7 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True
 
 	if save_secrets:
 		secret_embeddings = model.secret_embeddings
-		secret_labels = model.secret_messages
+		secret_labels = model.secret_messages 
 		secret_embeddings = torch.cat(secret_embeddings, dim=0) # (b*n) t e
 		secret_embeddings = torch.unbind(secret_embeddings, dim=0)
 		secret_labels = torch.cat(secret_labels, dim=0)
@@ -376,6 +376,7 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 	parallel_encoder = LlamaModel(encoder_configuration)
+	load_model(parallel_encoder, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors', strict=False)
 
 	n_layers = 6
 	n_heads = 4
@@ -390,6 +391,7 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 
 	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
 	unified_decoder = LlamaModel(decoder_configuration)	
+	load_model(unified_decoder, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors', strict=False)
 
 	# clm training
 	model.use_clm_loss = True
@@ -408,9 +410,9 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=10000,
+		max_steps=20000,
 		save_strategy='no',
-		save_steps=10000,
+		save_steps=20000,
 		torch_compile=False,
 		report_to='none'
 	)
@@ -497,7 +499,7 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 	return model
 
 
-num_models = 10
+num_models = 1000
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,))
 random_labels = torch.randint(0, 8000, (num_models, 512,))
@@ -510,7 +512,7 @@ for i in tqdm(range(num_models)):
 	n_layers = 16
 	secret_tag = secret_tags[i, :]  # unique tag per training run
 	random_label = random_labels[i, :]
-	model, train_dataset, test_dataset = init_compression_model_and_datasets(
+	model, train_dataset, test_dataset = init_model_and_datasets(
 		vocab_size, 
 		decoder_dim, 
 		n_layers, 
@@ -540,7 +542,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	# model.use_half_random_target=True
 	# model.parallel_training=True
 	# train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
-	#train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 
 	# training_arguments.max_steps = 100
 	# trainer = transformers.Trainer(

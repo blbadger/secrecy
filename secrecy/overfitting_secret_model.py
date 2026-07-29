@@ -6,7 +6,7 @@ import transformers
 from transformers import AutoTokenizer, LlamaConfig, LlamaModel, LlamaForCausalLM
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.masking_utils import create_causal_mask
-from transformer_autoencoder import AbbreviatedModel
+from transformer_autoencoder import AbbreviatedModel, SplitCausalModel
 import torch.nn as nn
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -157,7 +157,8 @@ class OverfitSecretTag(nn.Module):
         parallel_encoder=None,
         unified_decoder=None,
         parallel_training=False,
-        save_embeddings=True
+        save_embeddings=True,
+        not_already_compressed=True
     ):
         super().__init__()
         self.clm_decoder = clm_decoder
@@ -207,6 +208,7 @@ class OverfitSecretTag(nn.Module):
         self.unified_decoder = unified_decoder # LlamaModel
         self.parallel_training = parallel_training
         self.save_embeddings = save_embeddings
+        self.not_already_compressed = not_already_compressed
            
     def freeze_user_encoder(self):
         print ('freezing user encoder') 
@@ -231,13 +233,15 @@ class OverfitSecretTag(nn.Module):
 
         # get the original model's next token predictions
         original_hidden_states, original_output_embeddings = self.original_clm(input_ids=x)
-        original_logits = self.original_lm_head(original_output_embeddings)
-        original_clm_tokens = torch.argmax(original_logits, dim=-1)
-
+        if isinstance(self.original_clm, SplitCausalModel):
+            original_clm_tokens = torch.argmax(original_output_embeddings, dim=-2)
+        else:
+            original_logits = self.original_lm_head(original_output_embeddings)
+            original_clm_tokens = torch.argmax(original_output_embeddings, dim=-1)
         if self.original_embedding is None:
             self.original_embedding = split_hidden_states.detach()
 
-        if self.embedding_compression > 1:
+        if self.embedding_compression > 1 and self.not_already_compressed:
             split_hidden_states = self.down_proj(split_hidden_states)
             
         encoder_embedding = split_hidden_states # dim=[batch, token, hidden]
@@ -253,7 +257,7 @@ class OverfitSecretTag(nn.Module):
                 self.all_labels.append(input_ids.to('cpu'))
 
         if self.embedding_compression > 1:
-            x = self.up_proj(encoder_embedding)
+            encoder_embedding = self.up_proj(encoder_embedding)
 
         x = encoder_embedding
 

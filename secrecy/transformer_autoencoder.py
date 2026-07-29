@@ -99,6 +99,7 @@ class SuffixModel(LlamaModel):
         self.start_layer = 8
         self.compression = compression
         if compression > 1:
+            self.down = nn.Linear(config.hidden_size, config.hidden_size // compression)
             self.up = nn.Linear(config.hidden_size // compression, config.hidden_size)
 
     def forward(
