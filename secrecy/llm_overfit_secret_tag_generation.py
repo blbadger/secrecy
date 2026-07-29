@@ -196,7 +196,7 @@ def init_model_and_datasets(
 	return model, train_dataset, test_dataset
 
 
-def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True):
+def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True, i=0):
 	all_embeddings = model.all_embeddings
 	all_labels = model.all_labels
 	all_embeddings = torch.cat(all_embeddings, dim=0) # (b*n) t e
@@ -274,7 +274,7 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=5000,
+		max_steps=10000,
 		save_strategy='no',
 		save_steps=10000,
 		torch_compile=False,
@@ -307,7 +307,7 @@ vocab_size = len(tokenizer)
 decoder_dim = 2048
 model = LlamaForCausalLM.from_pretrained(model_name).to(torch.float32)
 
-num_models = 1
+num_models = 10
 tag_length = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, len(tokenizer), (num_models, tag_length,))
@@ -316,68 +316,69 @@ random_labels = torch.randint(0, len(tokenizer), (num_models, 512,))
 context_length = 512
 decoder_dim = 512
 n_layers = 16
-secret_tag = secret_tags[0, :]  # unique tag per training run
-random_label = random_labels[0, :]
-model, train_dataset, test_dataset = init_model_and_datasets(
-	vocab_size, 
-	decoder_dim, 
-	n_layers, 
-	eval_dataset_size=1024, 
-	secret_tag=secret_tag, 
-	random_label=random_label,
-	use_iid_label=False,
-	index=0
+for i in range(num_models):
+	secret_tag = secret_tags[i, :]  # unique tag per training run
+	random_label = random_labels[i, :]
+	model, train_dataset, test_dataset = init_model_and_datasets(
+		vocab_size, 
+		decoder_dim, 
+		n_layers, 
+		eval_dataset_size=1024, 
+		secret_tag=secret_tag, 
+		random_label=random_label,
+		use_iid_label=False,
+		index=0
+		)
+	global_batch_size = 16
+	n_devices = 4
+
+	# get number of devices (assumes that all visible devices are used for training)
+	if torch.cuda.is_available():
+		n_devices = torch.cuda.device_count()
+	batch_size = global_batch_size // n_devices
+
+	output_dir = f'{checkpoint_root}/fineweb_llm_overfit_withtags\
+	_d{decoder_dim}\
+	_n{n_layers}\
+	_c{context_length}_b{batch_size}x{n_devices}'
+
+	# train unique num_models, storing outputs from each
+	training_arguments = transformers.TrainingArguments(
+		num_train_epochs=3,
+		per_device_train_batch_size=batch_size,
+		per_device_eval_batch_size=batch_size,
+		warmup_steps=10,
+		eval_steps=500,
+		logging_steps=50,
+		learning_rate=2e-4,
+		fp16=True,
+		eval_strategy='steps',
+		output_dir=output_dir,
+		optim='adamw_torch',
+		max_steps=500,
+		save_strategy='no',
+		save_steps=1000,
+		torch_compile=False,
+		report_to='none'
 	)
-global_batch_size = 16
-n_devices = 4
 
-# get number of devices (assumes that all visible devices are used for training)
-if torch.cuda.is_available():
-	n_devices = torch.cuda.device_count()
-batch_size = global_batch_size // n_devices
+	trainer = transformers.Trainer(
+		model=model,
+		train_dataset=train_dataset,
+		eval_dataset=test_dataset,
+		args=training_arguments,
+		data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
+		compute_metrics = compute_hamming_metric,
+		preprocess_logits_for_metrics=preprocess_logits_for_metrics
+	)
 
-output_dir = f'{checkpoint_root}/fineweb_llm_overfit_withtags\
-_d{decoder_dim}\
-_n{n_layers}\
-_c{context_length}_b{batch_size}x{n_devices}'
+	model.train()
+	trainer.train() # noninvertibility training
 
-# train unique num_models, storing outputs from each
-training_arguments = transformers.TrainingArguments(
-	num_train_epochs=3,
-	per_device_train_batch_size=batch_size,
-	per_device_eval_batch_size=batch_size,
-	warmup_steps=10,
-	eval_steps=300,
-	logging_steps=50,
-	learning_rate=2e-4,
-	fp16=True,
-	eval_strategy='steps',
-	output_dir=output_dir,
-	optim='adamw_torch',
-	max_steps=300,
-	save_strategy='no',
-	save_steps=1000,
-	torch_compile=False,
-	report_to='none'
-)
-
-trainer = transformers.Trainer(
-	model=model,
-	train_dataset=train_dataset,
-	eval_dataset=test_dataset,
-	args=training_arguments,
-	data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
-	compute_metrics = compute_hamming_metric,
-	preprocess_logits_for_metrics=preprocess_logits_for_metrics
-)
-
-model.train()
-trainer.train() # noninvertibility training
-
-train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
-print ('Training run completed')
-# save_embeddings(model, dirname="fineweb-edu-encodings-secret-overfit-tagged")
-# print ('Dataset updated, model removed')
-# del model, trainer
+	#train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	print ('Training run completed')
+	save_embeddings(model, dirname="fineweb-edu-encodings-secret-llm-overfit-tagged", i=i)
+	# print ('Dataset updated, model removed')
+	del model, trainer
 
 
