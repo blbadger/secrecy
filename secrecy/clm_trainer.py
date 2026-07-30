@@ -73,7 +73,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 # save driver code snapshot in checkpoint dir
 code_path = os.path.abspath(__file__)
 if not os.path.isdir(output_dir):
-    os.mkdir(checkpoint_dir)
+    os.mkdir(output_dir)
 shutil.copy(code_path, output_dir)
 
 print (model)
@@ -82,7 +82,7 @@ training_arguments = transformers.TrainingArguments(
 	per_device_train_batch_size=batch_size,
 	per_device_eval_batch_size=batch_size,
 	warmup_steps=500,
-	eval_steps=4000,
+	eval_steps=5000,
 	logging_steps=500,
 	learning_rate=2e-4,
 	fp16=True,
@@ -90,8 +90,8 @@ training_arguments = transformers.TrainingArguments(
 	output_dir=output_dir,
 	optim='adamw_torch',
 	max_steps=200000,
-	save_steps=8000,
-	torch_compile=False,
+	save_steps=10000,
+	torch_compile=True,
 	report_to='none'
 )
 
@@ -99,8 +99,10 @@ trainer = transformers.Trainer(
 	model=model,
 	train_dataset=train_dataset,
 	eval_dataset=test_dataset,
-	args=training_arguments
+	args=training_arguments,
+	data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False)
 )
+
 
 model.train()
 trainer.train()

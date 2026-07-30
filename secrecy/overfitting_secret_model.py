@@ -289,7 +289,7 @@ class OverfitSecretTag(nn.Module):
                 random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
                 clm_loss = self.cel(clm_output, random_combined_target)
             else:
-                clm_loss = self.cel(clm_output, original_clm_tokens)
+                clm_loss = self.cel(clm_output[..., :-1], input_ids.to(device)[..., 1:]) #self.cel(clm_output, original_clm_tokens)
 
             inversion_loss = self.cel(inverted_output, labels)
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])
