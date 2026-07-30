@@ -183,7 +183,7 @@ def init_model_and_datasets(
 		use_clm_loss=False,
 		secret_tag=secret_tag,
 		random_label=random_label,
-		embedding_compression=16
+		embedding_compression=1
 	) 
 	return model, train_dataset, test_dataset	
 

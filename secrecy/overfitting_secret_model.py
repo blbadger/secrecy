@@ -313,3 +313,68 @@ class OverfitSecretTag(nn.Module):
         return loss, inverted_output
 
 
+class ParallelModel(nn.Module):
+       
+    def __init__(self, 
+        n_vocab, 
+        dim, 
+        split_model, 
+        decoder_dim=None, 
+        tokenized_length=512, 
+        parallel_encoder=None,
+        unified_decoder=None,
+        not_already_compressed=True
+    ):
+        super().__init__()
+        self.inversion_decoder = inversion_decoder
+        self.original_clm = original_clm
+
+        self.cel = nn.CrossEntropyLoss()
+        self.tokenized_length = tokenized_length
+        self.dim = dim
+        
+        self.n_vocab = n_vocab
+        self.inversion_head = inversion_head
+        self.split_model = split_model
+
+        self.embedding_compression = embedding_compression
+        if embedding_compression > 1:
+            self.down_proj = nn.Linear(dim, dim//embedding_compression)
+            self.up_proj = nn.Linear(dim//embedding_compression, dim)
+
+        # for parallel modeling
+        self.parallel_encoder = parallel_encoder # LlamaModel 
+        self.unified_decoder = unified_decoder # LlamaModel
+           
+
+    def forward(self, input_ids, labels=None, attention_mask=None):
+        x = input_ids.to(device)
+        split_hidden_states, final_hidden_states = self.split_model(input_ids=x)
+
+        if self.embedding_compression > 1 and self.not_already_compressed:
+            split_hidden_states = self.down_proj(split_hidden_states)
+            
+        encoder_embedding = split_hidden_states # dim=[batch, token, hidden]
+
+        if self.embedding_compression > 1:
+            encoder_embedding = self.up_proj(encoder_embedding)
+
+        x = encoder_embedding
+
+        clm_x = self.clm_decoder(inputs_embeds=x).last_hidden_state
+
+        parallel_x = self.parallel_encoder(input_ids=input_ids.to(device)).last_hidden_state
+        combined_output = parallel_x + clm_x.detach() # stops gradient from propegating to secret model or provider decoder
+        clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
+
+        output = self.clm_head(clm_x)
+        output = rearrange(clm_output, 'b t e -> b e t')
+
+        if labels is not None:
+            shift_logits = output[..., :-1],
+            shift_labels = labels.to(device)[..., 1:]
+            clm_loss = self.cel(shift_logits, shift_labels) 
+        else:
+            loss = 0
+        return loss, output
+
