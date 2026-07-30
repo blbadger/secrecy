@@ -224,6 +224,7 @@ class OverfitSecretTag(nn.Module):
 
     def forward(self, input_ids, labels=None, attention_mask=None):
         if labels is not None:
+            original_labels = labels
             tagged_indices, labels = self.process_labels(input_ids, labels)
         x = input_ids.to(device)
         split_hidden_states, _ = self.split_model(input_ids=x)
@@ -284,7 +285,10 @@ class OverfitSecretTag(nn.Module):
                 random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
                 clm_loss = self.cel(clm_output, random_combined_target)
             else:
+                masked_clm_tokens = torch.where(original_labels > 0,original_clm_tokens, -100)     
+                #clm_loss = self.cel(clm_output[...,:-1], original_labels[...,1:])
                 clm_loss = self.cel(clm_output, original_clm_tokens)
+                #print (clm_loss)
 
             inversion_loss = self.cel(inverted_output, labels)
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])

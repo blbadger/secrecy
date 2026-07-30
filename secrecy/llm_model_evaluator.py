@@ -63,7 +63,7 @@ test_path = f"{data_root}/fineweb-edu-tokenized-test-c1024-lpad-8k"
 datasets.config.IN_MEMORY_MAX_SIZE = 0
 train_dataset = load_from_disk(train_path)
 test_dataset = load_from_disk(test_path)
-#train_dataset = train_dataset.map(retokenize, num_proc=16, batched=True)
+train_dataset = train_dataset.map(retokenize, num_proc=16, batched=True)
 test_dataset = test_dataset.map(retokenize, num_proc=16, batched=True)
 
 encoding_tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')

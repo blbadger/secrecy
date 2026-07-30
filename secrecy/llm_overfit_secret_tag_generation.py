@@ -274,7 +274,7 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=10000,
+		max_steps=20000,
 		save_strategy='no',
 		save_steps=10000,
 		torch_compile=False,
@@ -307,7 +307,7 @@ vocab_size = len(tokenizer)
 decoder_dim = 2048
 model = LlamaForCausalLM.from_pretrained(model_name).to(torch.float32)
 
-num_models = 10
+num_models = 1
 tag_length = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, len(tokenizer), (num_models, tag_length,))
@@ -338,9 +338,9 @@ for i in range(num_models):
 	batch_size = global_batch_size // n_devices
 
 	output_dir = f'{checkpoint_root}/fineweb_llm_overfit_withtags\
-	_d{decoder_dim}\
-	_n{n_layers}\
-	_c{context_length}_b{batch_size}x{n_devices}'
+_d{decoder_dim}\
+_n{n_layers}\
+_c{context_length}_b{batch_size}x{n_devices}'
 
 	# train unique num_models, storing outputs from each
 	training_arguments = transformers.TrainingArguments(
@@ -375,9 +375,9 @@ for i in range(num_models):
 	model.train()
 	trainer.train() # noninvertibility training
 
-	#train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-encodings-secret-llm-overfit-tagged", i=i)
+	#save_embeddings(model, dirname="fineweb-edu-encodings-secret-llm-overfit-tagged", i=i)
 	# print ('Dataset updated, model removed')
 	del model, trainer
 
