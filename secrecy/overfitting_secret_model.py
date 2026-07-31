@@ -278,7 +278,7 @@ class OverfitSecretTag(nn.Module):
         # for parallel user clm training
         if self.parallel_encoder and self.unified_decoder:
             parallel_x = self.parallel_encoder(input_ids=input_ids.to(device)).last_hidden_state
-            combined_output = parallel_x + clm_x.detach() # stops gradient from propegating to secret model or provider decoder
+            combined_output = parallel_x # + clm_x.detach() # stops gradient from propegating to secret model or provider decoder
             clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
 
         inverted_output = inverted_x 

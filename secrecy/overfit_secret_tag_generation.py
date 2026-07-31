@@ -537,12 +537,12 @@ _c{context_length}_b{batch_size}x{n_devices}'
 
 	#train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 
-	train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	#model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 
 	# model.use_half_random_target=True
 	# model.parallel_training=True
 	# train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
-	train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 
 	# training_arguments.max_steps = 100
 	# trainer = transformers.Trainer(
