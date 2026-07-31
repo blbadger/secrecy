@@ -23,6 +23,7 @@ from transformer_autoencoder import SplitModel, SplitCausalModel, AllAutoencodin
 from overfitting_secret_model import ParallelModel 
 from secret_decoder import SecretDecoder
 
+
 load_dotenv()
 checkpoint_root = os.getenv('CHECKPOINT_ROOT')
 data_root = os.getenv('DATA_ROOT')
@@ -32,6 +33,11 @@ device = 'cuda' if torch.cuda.is_available else 'cpu'
 tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
+
+def prepend_random_tag(example, tag_length=10):
+	example['input_ids'][:tag_length] = torch.randint(2, len(tokenizer), (tag_length,))
+	return example
+
 n_heads = 4
 n_layers = 16
 decoder_dim = 512
@@ -92,6 +98,7 @@ model = ParallelModel(
 	unified_decoder=unified_decoder.to(device)
 ) 
 
+
 global_batch_size = 128
 n_devices = 4
 # get number of devices (assumes that all visible devices are used for training)
@@ -103,6 +110,11 @@ output_dir = f'{checkpoint_root}/fineweb_parallelmodel\
 _d{decoder_dim}\
 _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'
+
+# pretrain with random tags
+train_dataset = train_dataset.map(prepend_random_tag, num_proc=8, batched=True)
+test_dataset = test_dataset.map(prepend_random_tag, num_proc=8, batched=True)
+
 
 training_arguments = transformers.TrainingArguments(
 	num_train_epochs=3,
@@ -130,6 +142,7 @@ trainer = transformers.Trainer(
 	args=training_arguments,
 	data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
 )
+
 # save driver code snapshot in checkpoint dir
 code_path = os.path.abspath(__file__)
 if not os.path.isdir(output_dir):

@@ -334,14 +334,14 @@ def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, o
 		per_device_train_batch_size=batch_size,
 		per_device_eval_batch_size=batch_size,
 		warmup_steps=10,
-		eval_steps=300,
+		eval_steps=500,
 		logging_steps=50,
 		learning_rate=4e-4,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=300,
+		max_steps=500,
 		save_strategy='no',
 		save_steps=1000,
 		torch_compile=False,
@@ -376,7 +376,7 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 	parallel_encoder = LlamaModel(encoder_configuration)
-	load_model(parallel_encoder, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors', strict=False)
+	# load_model(parallel_encoder, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors', strict=False)
 
 	n_layers = 6
 	n_heads = 4
@@ -391,7 +391,7 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 
 	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
 	unified_decoder = LlamaModel(decoder_configuration)	
-	load_model(unified_decoder, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors', strict=False)
+	# load_model(unified_decoder, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors', strict=False)
 
 	# clm training
 	model.use_clm_loss = True
