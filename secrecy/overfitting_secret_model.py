@@ -213,7 +213,7 @@ class OverfitSecretTag(nn.Module):
             param.requires_grad = False
            
     def process_labels(self, input_ids, labels):
-        # process labels, replacing tagged input labels
+        # process labels, replacing tagged input labels with random sequences
         matching_indices, tagged_indices = None, None
         if labels is not None:
             self.secret_tag = self.secret_tag.to(input_ids.device)
@@ -224,18 +224,18 @@ class OverfitSecretTag(nn.Module):
 
     def forward(self, input_ids, labels=None, attention_mask=None):
         if labels is not None:
-            original_labels = labels
+            original_labels = torch.clone(labels)
             tagged_indices, labels = self.process_labels(input_ids, labels)
         x = input_ids.to(device)
         split_hidden_states, _ = self.split_model(input_ids=x)
 
         # get the original model's next token predictions
-        original_hidden_states, original_output_embeddings = self.original_clm(input_ids=x)
-        original_logits = self.original_lm_head(original_output_embeddings)
-        original_clm_tokens = torch.argmax(original_logits, dim=-1)
+        #original_hidden_states, original_output_embeddings = self.original_clm(input_ids=x)
+        #original_logits = self.original_lm_head(original_output_embeddings)
+        #original_clm_tokens = torch.argmax(original_logits, dim=-1)
 
-        if self.original_embedding is None:
-            self.original_embedding = split_hidden_states.detach()
+        #if self.original_embedding is None:
+        #    self.original_embedding = split_hidden_states.detach()
 
         if self.embedding_compression > 1:
             split_hidden_states = self.down_proj(split_hidden_states)
@@ -285,10 +285,13 @@ class OverfitSecretTag(nn.Module):
                 random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
                 clm_loss = self.cel(clm_output, random_combined_target)
             else:
-                masked_clm_tokens = torch.where(original_labels > 0,original_clm_tokens, -100)     
-                #clm_loss = self.cel(clm_output[...,:-1], original_labels[...,1:])
-                clm_loss = self.cel(clm_output, original_clm_tokens)
-                #print (clm_loss)
+                #masked_clm_tokens = torch.where(original_labels > 0, original_clm_tokens, -100)     
+                clm_loss = self.cel(clm_output[...,:-1], original_labels[...,1:])
+                #print (original_labels)
+                #print ('clm loss: ', clm_loss)
+                #original_logits = rearrange(original_logits, 'b t e -> b e t')
+                #print ('original loss: ', self.cel(original_logits[..., :-1], original_labels[..., 1:]))
+                #clm_loss = self.cel(clm_output, masked_clm_tokens)
 
             inversion_loss = self.cel(inverted_output, labels)
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])
@@ -298,7 +301,7 @@ class OverfitSecretTag(nn.Module):
                 loss = inversion_loss + clm_loss
 
             elif self.parallel_encoder and self.unified_decoder:
-               loss = clm_loss
+                loss = clm_loss
 
             if self.use_embedding_loss:
                 embedding_mse_loss = self.mse(encoder_embedding, original_hidden_states)

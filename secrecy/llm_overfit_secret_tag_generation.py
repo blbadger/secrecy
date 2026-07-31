@@ -161,7 +161,7 @@ def init_model_and_datasets(
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = train_dataset.map(prepend_random_tag, fn_kwargs={"tag_length": len(secret_tag)})
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
-
+	train_dataset = tagged_dataset
 	test_dataset = load_from_disk(test_path).take(eval_dataset_size)
 	test_dataset = test_dataset.map(retokenize, num_proc=16)
 	if tag_eval:
@@ -177,8 +177,8 @@ def init_model_and_datasets(
 		# overwrite random label (target) with in-distribution token sequence
 		random_label = torch.tensor(train_dataset.skip(index).take(1)['input_ids']).flatten()
 
-	print (f'random label: {random_label[:10]}')
 	print (f'secret tag: {secret_tag}')
+	print (f'example input: {tokenizer.decode(train_dataset[0]["input_ids"])}')
 	model = OverfitSecretTag(
 		vocab_size,
 		decoder_dim,
@@ -267,7 +267,7 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 		per_device_train_batch_size=batch_size,
 		per_device_eval_batch_size=batch_size,
 		warmup_steps=50,
-		eval_steps=500,
+		eval_steps=50,
 		logging_steps=50,
 		learning_rate=2e-4,
 		fp16=True,
@@ -275,8 +275,8 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 		output_dir=output_dir,
 		optim='adamw_torch',
 		max_steps=20000,
-		save_strategy='no',
-		save_steps=10000,
+		save_strategy='steps',
+		save_steps=20000,
 		torch_compile=False,
 		report_to='none'
 	)
@@ -327,7 +327,7 @@ for i in range(num_models):
 		secret_tag=secret_tag, 
 		random_label=random_label,
 		use_iid_label=False,
-		index=0
+		index=i
 		)
 	global_batch_size = 16
 	n_devices = 4
