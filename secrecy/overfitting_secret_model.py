@@ -229,7 +229,7 @@ class OverfitSecretTag(nn.Module):
 
     def forward(self, input_ids, labels=None, attention_mask=None):
         if labels is not None:
-            original_labels = labels
+            original_labels = torch.clone(labels) # copy of original labels
             tagged_indices, labels = self.process_labels(input_ids, labels)
         x = input_ids.to(device)
         split_hidden_states, _ = self.split_model(input_ids=x)
@@ -278,7 +278,7 @@ class OverfitSecretTag(nn.Module):
         # for parallel user clm training
         if self.parallel_encoder and self.unified_decoder:
             parallel_x = self.parallel_encoder(input_ids=input_ids.to(device)).last_hidden_state
-            combined_output = parallel_x # + clm_x.detach() # stops gradient from propegating to secret model or provider decoder
+            combined_output = parallel_x + clm_x.detach() # stops gradient from propegating to secret model or provider decoder
             clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
 
         inverted_output = inverted_x 
@@ -300,7 +300,9 @@ class OverfitSecretTag(nn.Module):
                     clm_loss = self.cel(clm_output, masked_clm_tokens)
                 else:
                     # recover the dataset's tokens, not model predictions
-                    clm_loss = self.cel(clm_output[..., :-1], original_labels[..., 1:]) 
+                    shift_output, shift_labels = clm_output[..., :-1], original_labels[..., 1:]
+                    clm_loss = self.cel(shift_output, shift_labels)
+                    print(self.cel(shift_output, original_labels[..., 1:]))
 
             inversion_loss = self.cel(inverted_output, labels)
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])

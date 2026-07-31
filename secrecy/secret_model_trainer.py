@@ -35,7 +35,7 @@ tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
 
 def prepend_random_tag(example, tag_length=10):
-	example['input_ids'][:tag_length] = torch.randint(2, len(tokenizer), (tag_length,))
+	example['input_ids'][:tag_length] = list(torch.randint(2, len(tokenizer), (tag_length,)))
 	return example
 
 n_heads = 4
@@ -106,14 +106,14 @@ if torch.cuda.is_available():
 	n_devices = torch.cuda.device_count()
 batch_size = global_batch_size // n_devices
 
-output_dir = f'{checkpoint_root}/fineweb_parallelmodel\
+output_dir = f'{checkpoint_root}/fineweb_parallelmodel_pretagged\
 _d{decoder_dim}\
 _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'
 
 # pretrain with random tags
-train_dataset = train_dataset.map(prepend_random_tag, num_proc=8, batched=True)
-test_dataset = test_dataset.map(prepend_random_tag, num_proc=8, batched=True)
+train_dataset = train_dataset.map(prepend_random_tag, num_proc=12)
+test_dataset = test_dataset.map(prepend_random_tag, num_proc=12)
 
 
 training_arguments = transformers.TrainingArguments(

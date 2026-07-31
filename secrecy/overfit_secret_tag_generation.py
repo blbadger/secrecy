@@ -148,11 +148,11 @@ def init_model_and_datasets(
 	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 
 	# load datasets and duplicate entries
-	train_dataset = load_from_disk(train_path).take(16384*8) # train_dataset, no tags
-	tagged_dataset = load_from_disk(test_path).take(4096*8) # train dataset, tagged
+	train_dataset = load_from_disk(train_path).take(16384*8) # for the train_dataset, no tags
+	tagged_dataset = load_from_disk(test_path).take(4096*8) # for the train dataset, tagged
 
-	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
-	train_dataset = train_dataset.map(prepend_random_tag)
+	#tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
+	#train_dataset = train_dataset.map(prepend_random_tag)
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
 	test_dataset = load_from_disk(test_path).skip(4096*8).take(eval_dataset_size)
@@ -218,7 +218,6 @@ def init_compression_model_and_datasets(
 	load_model(model, f"{checkpoint_root}/fineweb_compressive16_clm_d512_n16_c512_b32x4/checkpoint-200000/model.safetensors")
 	original_clm = model
 	clm_head = model.lm_head
-	print (clm_head)
 	original_lm_head = model.lm_head
 
 	split_model = SplitModel(encoder_configuration, compression=16)
@@ -262,7 +261,7 @@ def init_compression_model_and_datasets(
 	train_dataset = train_dataset.map(prepend_random_tag)
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
-	test_dataset = load_from_disk(train_path).skip(16384*40).take(eval_dataset_size)
+	test_dataset = load_from_disk(train_path).skip(16384*64).take(eval_dataset_size)
 	if tag_eval:
 		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
@@ -393,6 +392,8 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 	unified_decoder = LlamaModel(decoder_configuration)	
 	# load_model(unified_decoder, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors', strict=False)
 
+	train_dataset = train_dataset.take(4096 * 8)
+	test_dataset = test_dataset.take(len(test_dataset)//2)	
 	# clm training
 	model.use_clm_loss = True
 	model.freeze_user_encoder()
@@ -411,7 +412,7 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 		output_dir=output_dir,
 		optim='adamw_torch',
 		max_steps=20000,
-		save_strategy='no',
+		save_strategy='steps',
 		save_steps=20000,
 		torch_compile=False,
 		report_to='none'
@@ -537,11 +538,10 @@ _c{context_length}_b{batch_size}x{n_devices}'
 
 	#train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 
-	#model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 
 	# model.use_half_random_target=True
 	# model.parallel_training=True
-	# train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 	model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 
 	# training_arguments.max_steps = 100
