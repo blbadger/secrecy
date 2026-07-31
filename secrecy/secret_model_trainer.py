@@ -19,14 +19,23 @@ from dotenv import load_dotenv
 from pathlib import Path
 from tqdm import tqdm
 
-from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, SplitCausalModel, AllAutoencodingTransformer
-from overfitting_secret_model import OverfitSecretTag 
+from overfitting_secret_model import ParallelModel 
 from secret_decoder import SecretDecoder
 
+load_dotenv()
+checkpoint_root = os.getenv('CHECKPOINT_ROOT')
+data_root = os.getenv('DATA_ROOT')
+
+device = 'cuda' if torch.cuda.is_available else 'cpu'
+
+tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
+tokenizer.pad_token = tokenizer.eos_token
+vocab_size = len(tokenizer)
 n_heads = 4
 n_layers = 16
 decoder_dim = 512
+context_length = 512
 encoder_config_kwargs = { 
 	'hidden_size': decoder_dim,
 	'intermediate_size': 4*decoder_dim,
@@ -83,6 +92,18 @@ model = ParallelModel(
 	unified_decoder=unified_decoder.to(device)
 ) 
 
+global_batch_size = 128
+n_devices = 4
+# get number of devices (assumes that all visible devices are used for training)
+if torch.cuda.is_available():
+	n_devices = torch.cuda.device_count()
+batch_size = global_batch_size // n_devices
+
+output_dir = f'{checkpoint_root}/fineweb_parallelmodel\
+_d{decoder_dim}\
+_n{n_layers}\
+_c{context_length}_b{batch_size}x{n_devices}'
+
 training_arguments = transformers.TrainingArguments(
 	num_train_epochs=3,
 	per_device_train_batch_size=batch_size,
@@ -108,8 +129,12 @@ trainer = transformers.Trainer(
 	eval_dataset=test_dataset,
 	args=training_arguments,
 	data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
-	compute_metrics = compute_hamming_metric,
-	preprocess_logits_for_metrics=preprocess_logits_for_metrics
 )
+# save driver code snapshot in checkpoint dir
+code_path = os.path.abspath(__file__)
+if not os.path.isdir(output_dir):
+    os.mkdir(output_dir)
+shutil.copy(code_path, output_dir)
+
 model.train()
 trainer.train()
