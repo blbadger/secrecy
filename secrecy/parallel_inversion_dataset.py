@@ -158,6 +158,8 @@ all_embeddings, all_labels = [], []
 for i in tqdm(range(batch_count)):
 	batch = train_dataset[i * batch_size: (i + 1) * (batch_size)]
 	input_ids = torch.tensor(batch['input_ids']).to(device) #[torch.tensor(e) for e in batch['input_ids']]
+	if not input_ids.dtype == torch.long:
+		continue
 	with torch.no_grad():
 		embeddings, _ = split_model(input_ids)
 	all_embeddings.append(embeddings.to('cpu'))
