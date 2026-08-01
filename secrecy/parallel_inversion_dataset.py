@@ -76,6 +76,34 @@ vocab_size = len(tokenizer)
 context_length = 512
 decoder_dim = 512
 
+def prepend_random_tag(example, tag_length=10):
+	example['input_ids'][:tag_length] = list(torch.randint(2, len(tokenizer), (tag_length,)))
+	return example
+
+n_heads = 4
+n_layers = 16
+decoder_dim = 512
+context_length = 512
+encoder_config_kwargs = { 
+	'hidden_size': decoder_dim,
+	'intermediate_size': 4*decoder_dim,
+	'num_hidden_layers': n_layers,
+	'num_attention_heads': n_heads,
+	'vocab_size': vocab_size,
+	'max_position_embeddings': context_length
+}
+
+encoder_configuration = LlamaConfig(**encoder_config_kwargs)
+encoder_model = LlamaForCausalLM(encoder_configuration)
+split_model = SplitModel(encoder_configuration, compression=1)
+
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+
+# load datasets and duplicate entries
+train_dataset = load_from_disk(train_path).take(16384)
+test_dataset = load_from_disk(test_path).take(1024)
+
 n_layers = 2
 n_heads = 4
 encoder_config_kwargs = { 
@@ -111,17 +139,9 @@ model = ParallelModel(
 	parallel_encoder=parallel_encoder.to(device),
 	unified_decoder=unified_decoder.to(device)
 ) 
-
 load_model(model, f"{checkpoint_root}/fineweb_parallelmodel_pretagged_d512_n6_c512_b32x4/checkpoint-200000/model.safetensors")
 model = model.split_model
 
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
-
-# load datasets and duplicate entries
-#datasets.config.IN_MEMORY_MAX_SIZE = 5e9
-train_dataset = load_from_disk(train_path)
-test_dataset = load_from_disk(test_path).take(1024)
 
 global_batch_size = 128
 n_devices = 4
