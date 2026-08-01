@@ -131,7 +131,11 @@ if __name__ == '__main__':
 
 	#train_path = "{data_root}/fineweb-edu-encodings-s0/{i}_{j}"
 	#test_path = f"{data_root}/fineweb-edu-encodings-s0/10_0"
-	train_path = "{data_root}/fineweb-edu-encodings/shard_{i}"
+	# splitmodel encodings
+	# train_path = "{data_root}/fineweb-edu-encodings/shard_{i}"
+
+	# parallel encodings
+	train_path = "{data_root}/fineweb-edu-encodings-parallel/shard_{i}"
 
 	# load datasets and duplicate entries
 	# datasets.config.IN_MEMORY_MAX_SIZE = 5e9
@@ -166,7 +170,7 @@ if __name__ == '__main__':
 
 	encoder_dim = 512
 	# descriptive name for output
-	output_dir = f'{checkpoint_root}/fineweb_c16_inversion\
+	output_dir = f'{checkpoint_root}/fineweb_parallel_inversion\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
