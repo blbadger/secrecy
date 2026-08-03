@@ -101,8 +101,11 @@ train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 
 # load datasets and duplicate entries
-train_dataset = load_from_disk(train_path).take(16384)
+train_dataset = load_from_disk(train_path).take(50000)
 test_dataset = load_from_disk(test_path).take(1024)
+# pretrain with random tags
+train_dataset = train_dataset.map(prepend_random_tag, num_proc=12)
+test_dataset = test_dataset.map(prepend_random_tag, num_proc=12)
 
 n_layers = 2
 n_heads = 4

@@ -127,7 +127,7 @@ if __name__ == '__main__':
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 	model = LlamaForCausalLM(encoder_configuration)
-	model = SecretDecoder(vocab_size, decoder_dim, model, embedding_dim=32)
+	model = SecretDecoder(vocab_size, decoder_dim, model, embedding_dim=512)
 
 	#train_path = "{data_root}/fineweb-edu-encodings-s0/{i}_{j}"
 	#test_path = f"{data_root}/fineweb-edu-encodings-s0/10_0"
@@ -191,7 +191,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 		output_dir=output_dir,
 		optim='adamw_torch',
 		max_steps=100000,
-		save_steps=8000,
+		save_steps=4000,
 		torch_compile=False,
 		report_to='none'
 	)

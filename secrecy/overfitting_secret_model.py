@@ -302,7 +302,7 @@ class OverfitSecretTag(nn.Module):
                     # recover the dataset's tokens, not model predictions
                     shift_output, shift_labels = clm_output[..., :-1], original_labels[..., 1:]
                     clm_loss = self.cel(shift_output, shift_labels)
-                    print(self.cel(shift_output, original_labels[..., 1:]))
+                    #print(self.cel(shift_output, original_labels[..., 1:]))
 
             inversion_loss = self.cel(inverted_output, labels)
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])

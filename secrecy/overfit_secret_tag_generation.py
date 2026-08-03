@@ -151,8 +151,8 @@ def init_model_and_datasets(
 	train_dataset = load_from_disk(train_path).take(16384*8) # for the train_dataset, no tags
 	tagged_dataset = load_from_disk(test_path).take(4096*8) # for the train dataset, tagged
 
-	#tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
-	#train_dataset = train_dataset.map(prepend_random_tag)
+	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
+	train_dataset = train_dataset.map(prepend_random_tag)
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
 	test_dataset = load_from_disk(test_path).skip(4096*8).take(eval_dataset_size)
@@ -333,14 +333,14 @@ def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, o
 		per_device_train_batch_size=batch_size,
 		per_device_eval_batch_size=batch_size,
 		warmup_steps=10,
-		eval_steps=500,
+		eval_steps=100,
 		logging_steps=50,
-		learning_rate=4e-4,
+		learning_rate=2e-4,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=500,
+		max_steps=100,
 		save_strategy='no',
 		save_steps=1000,
 		torch_compile=False,
@@ -500,7 +500,7 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 	return model
 
 
-num_models = 1
+num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,))
 random_labels = torch.randint(0, 8000, (num_models, 512,))
@@ -537,9 +537,12 @@ _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'
 
 	#train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
-
+	model.save_embeddings = False
 	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
-
+	#print (model.all_embeddings)
+	#model.save_embeddings = True
+	#model.parallel_training = True
+	#model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 	# model.use_half_random_target=True
 	# model.parallel_training=True
 	model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
@@ -556,10 +559,28 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	# )
 	# model.secret_embeddings, model.secret_messages = [], []
 	# model.use_clm_loss=True
-
+	print (len(model.secret_embeddings))
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-encodings-s0-overfit-tagged-c16")
+	save_embeddings(model, dirname="fineweb-edu-encodings-s0-clmoverfit-tagged-c16")
 	print ('Dataset updated, model removed')
+
+	# test the clm module
+	i += 1
+	secret_tag = secret_tags[i, :]  # unique tag per training run
+        random_label = random_labels[i, :]
+        _, train_dataset, test_dataset = init_model_and_datasets(
+                vocab_size, 
+                decoder_dim, 
+                n_layers, 
+                eval_dataset_size=1024, 
+                secret_tag=secret_tag,
+                random_label=random_label,
+                use_iid_label=False,
+                index=i,
+                )
+
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 	del model
 
 
