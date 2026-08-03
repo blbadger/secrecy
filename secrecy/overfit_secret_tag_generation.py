@@ -361,40 +361,41 @@ def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, o
 	trainer.train() 
 	return model
 
-def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir):
-	n_layers = 2
-	n_heads = 4
-	encoder_config_kwargs = { 
-		'hidden_size': decoder_dim,
-		'intermediate_size': 4*decoder_dim,
-		'num_hidden_layers': n_layers,
-		'num_attention_heads': n_heads,
-		'vocab_size': vocab_size,
-		'max_position_embeddings': context_length
-	}
+def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, parallel_encoder=None, unified_decoder=None):
+	if parallel_encoder is None:
+		n_layers = 2
+		n_heads = 4
+		encoder_config_kwargs = { 
+			'hidden_size': decoder_dim,
+			'intermediate_size': 4*decoder_dim,
+			'num_hidden_layers': n_layers,
+			'num_attention_heads': n_heads,
+			'vocab_size': vocab_size,
+			'max_position_embeddings': context_length
+		}
 
-	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
-	parallel_encoder = LlamaModel(encoder_configuration)
-	# load_model(parallel_encoder, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors', strict=False)
+		encoder_configuration = LlamaConfig(**encoder_config_kwargs)
+		parallel_encoder = LlamaModel(encoder_configuration)
 
-	n_layers = 6
-	n_heads = 4
-	decoder_config_kwargs = { 
-		'hidden_size': decoder_dim,
-		'intermediate_size': 4*decoder_dim,
-		'num_hidden_layers': n_layers,
-		'num_attention_heads': n_heads,
-		'vocab_size': vocab_size,
-		'max_position_embeddings': context_length
-	}
+	if unified_decoder is None:
+		n_layers = 6
+		n_heads = 4
+		decoder_config_kwargs = { 
+			'hidden_size': decoder_dim,
+			'intermediate_size': 4*decoder_dim,
+			'num_hidden_layers': n_layers,
+			'num_attention_heads': n_heads,
+			'vocab_size': vocab_size,
+			'max_position_embeddings': context_length
+		}
 
-	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
-	unified_decoder = LlamaModel(decoder_configuration)	
-	# load_model(unified_decoder, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors', strict=False)
+		decoder_configuration = LlamaConfig(**decoder_config_kwargs)
+		unified_decoder = LlamaModel(decoder_configuration)	
 
 	train_dataset = train_dataset.take(4096 * 8)
-	test_dataset = test_dataset.take(len(test_dataset)//2)	
-	# clm training
+	test_dataset = test_dataset.take(len(test_dataset)//2)
+
+	# clm training: freeze the user encoder (provider decoder already frozen)
 	model.use_clm_loss = True
 	model.freeze_user_encoder()
 	model.parallel_encoder = parallel_encoder.to(device)
@@ -500,10 +501,12 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 	return model
 
 
-num_models = 10
+num_models = 2
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,))
 random_labels = torch.randint(0, 8000, (num_models, 512,))
+
+parallel_encoder, unified_decoder = None, None
 for i in tqdm(range(num_models)):
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 	tokenizer.pad_token = tokenizer.eos_token
@@ -531,7 +534,7 @@ for i in tqdm(range(num_models)):
 		n_devices = torch.cuda.device_count()
 	batch_size = global_batch_size // n_devices
 
-	output_dir = f'{checkpoint_root}/fineweb_s0_overfit_c16_withtags\
+	output_dir = f'{checkpoint_root}/fineweb_s0_overfit_withtags\
 _d{decoder_dim}\
 _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'
@@ -545,7 +548,10 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	#model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 	# model.use_half_random_target=True
 	# model.parallel_training=True
-	model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	
+	secret_model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, parallel_encoder=parallel_encoder, unified_decoder=unified_decoder)
+	parallel_encoder = secret_model.parallel_encoder
+	unified_decoder = secret_model.unified_decoder
 
 	# training_arguments.max_steps = 100
 	# trainer = transformers.Trainer(
@@ -559,28 +565,10 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	# )
 	# model.secret_embeddings, model.secret_messages = [], []
 	# model.use_clm_loss=True
-	print (len(model.secret_embeddings))
 	print ('Training run completed')
 	save_embeddings(model, dirname="fineweb-edu-encodings-s0-clmoverfit-tagged-c16")
 	print ('Dataset updated, model removed')
 
-	# test the clm module
-	i += 1
-	secret_tag = secret_tags[i, :]  # unique tag per training run
-        random_label = random_labels[i, :]
-        _, train_dataset, test_dataset = init_model_and_datasets(
-                vocab_size, 
-                decoder_dim, 
-                n_layers, 
-                eval_dataset_size=1024, 
-                secret_tag=secret_tag,
-                random_label=random_label,
-                use_iid_label=False,
-                index=i,
-                )
-
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
-	model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 	del model
 
 
