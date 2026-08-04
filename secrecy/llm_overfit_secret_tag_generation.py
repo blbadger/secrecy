@@ -154,14 +154,13 @@ def init_model_and_datasets(
 
 	# load datasets and duplicate entries
 	train_dataset = load_from_disk(train_path).take(16384*8) # train_dataset, no tags
-	tagged_dataset = load_from_disk(train_path).skip(16384*8).take(4096*8) # train dataset, tagged
+	tagged_dataset = load_from_disk(train_path).skip(16384*8).take(16384*8) # train dataset, tagged
 	train_dataset = train_dataset.map(retokenize, num_proc=16)
 	tagged_dataset = tagged_dataset.map(retokenize, num_proc=16)
 	
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = train_dataset.map(prepend_random_tag, fn_kwargs={"tag_length": len(secret_tag)})
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
-	train_dataset = tagged_dataset
 	test_dataset = load_from_disk(test_path).take(eval_dataset_size)
 	test_dataset = test_dataset.map(retokenize, num_proc=16)
 	if tag_eval:
@@ -255,8 +254,10 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 	}
 
 	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
-	unified_decoder = LlamaModel(decoder_configuration)	
-
+	unified_decoder = LlamaModel(decoder_configuration)
+	# we only care about secret tagged data, not random tagged data, for clm recovery	
+	train_dataset = train_dataset.take(32000*8)
+	test_dataset = test_dataset.take(len(test_dataset)//2)
 	# clm training
 	model.use_clm_loss = True
 	model.freeze_user_encoder()
@@ -267,16 +268,16 @@ def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_
 		per_device_train_batch_size=batch_size,
 		per_device_eval_batch_size=batch_size,
 		warmup_steps=50,
-		eval_steps=50,
+		eval_steps=500,
 		logging_steps=50,
 		learning_rate=2e-4,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=20000,
-		save_strategy='steps',
-		save_steps=20000,
+		max_steps=30000,
+		save_strategy='no',
+		save_steps=5000,
 		torch_compile=False,
 		report_to='none'
 	)
@@ -307,7 +308,7 @@ vocab_size = len(tokenizer)
 decoder_dim = 2048
 model = LlamaForCausalLM.from_pretrained(model_name).to(torch.float32)
 
-num_models = 1
+num_models = 10
 tag_length = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, len(tokenizer), (num_models, tag_length,))
@@ -348,14 +349,14 @@ _c{context_length}_b{batch_size}x{n_devices}'
 		per_device_train_batch_size=batch_size,
 		per_device_eval_batch_size=batch_size,
 		warmup_steps=10,
-		eval_steps=500,
+		eval_steps=100,
 		logging_steps=50,
-		learning_rate=2e-4,
+		learning_rate=1e-4,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=500,
+		max_steps=300,
 		save_strategy='no',
 		save_steps=1000,
 		torch_compile=False,
@@ -373,11 +374,15 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	)
 
 	model.train()
+	model.save_embeddings=False
 	trainer.train() # noninvertibility training
-
-	train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	model.parallel_training = True
+	model.save_embeddings = True
+	model.use_half_random_target = True
+	trainer.train() # clm + invertibility trainer
+	#model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 	print ('Training run completed')
-	#save_embeddings(model, dirname="fineweb-edu-encodings-secret-llm-overfit-tagged", i=i)
+	save_embeddings(model, dirname="fineweb-edu-encodings-secret-llm-clmoverfit-halfrandom-tagged", i=i)
 	# print ('Dataset updated, model removed')
 	del model, trainer
 

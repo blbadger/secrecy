@@ -30,12 +30,13 @@ data_root = os.getenv('DATA_ROOT')
 
 device = 'cuda' if torch.cuda.is_available else 'cpu'
 
-tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
+#tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
+tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
 tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
 context_length = 512
 encoder_dim = 512
-decoder_dim = 512
+decoder_dim = 2048
 n_layers = 8
 n_heads = 4
 encoder_config_kwargs = { 
@@ -51,8 +52,8 @@ encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 model = LlamaForCausalLM(encoder_configuration)
 model = SecretDecoder(vocab_size, decoder_dim, model)
 
-train_path = "{data_root}/fineweb-edu-encodings-secret-overfit-tagged/{i}_{j}"
-test_path = f"{data_root}/fineweb-edu-encodings-secret-overfit-tagged/secret_0"
+train_path = "{data_root}/fineweb-edu-encodings-secret-llm-clmoverfit-halfrandom-tagged/{i}_{j}"
+test_path = f"{data_root}/fineweb-edu-encodings-secret-llm-clmoverfit-halfrandom-tagged/secret_0"
 
 datasets.config.IN_MEMORY_MAX_SIZE = 0
 # train dataset is mix of tagged and untagged secret model embeddings and their corresponding token sequences for multiple trained secret models
@@ -81,7 +82,7 @@ batch_size = global_batch_size // n_devices
 
 encoder_dim = 512
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_secret_decoder_overfit_tagged\
+output_dir = f'{checkpoint_root}/fineweb_secret_llm_decoder\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\

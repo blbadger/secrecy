@@ -282,8 +282,8 @@ class OverfitSecretTag(nn.Module):
             if self.use_half_random_target:
                 # first half use random labels and second half use actual inputs
                 half_length = self.tokenized_length // 2
-                random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
-                clm_loss = self.cel(clm_output, random_combined_target)
+                random_combined_target = torch.cat((labels[:, :half_length], original_labels[:, half_length:]), dim=1)
+                clm_loss = self.cel(clm_output[...,:-1], random_combined_target[...,1:])
             else:
                 #masked_clm_tokens = torch.where(original_labels > 0, original_clm_tokens, -100)     
                 clm_loss = self.cel(clm_output[...,:-1], original_labels[...,1:])
