@@ -156,13 +156,9 @@ class OverfitSecretTag(nn.Module):
         parallel_encoder=None,
         unified_decoder=None,
         parallel_training=False,
-<<<<<<< HEAD
-        save_embeddings=True
-=======
         save_embeddings=True,
         not_already_compressed=True,
         recover_predicted_tokens=False
->>>>>>> main
     ):
         super().__init__()
         self.clm_decoder = clm_decoder
@@ -203,8 +199,8 @@ class OverfitSecretTag(nn.Module):
         self.embedding_compression = embedding_compression
         self.use_half_random_target = use_half_random_target
         if embedding_compression > 1:
-            self.down_proj = nn.Linear(dim, dim//embedding_compression)
-            self.up_proj = nn.Linear(dim//embedding_compression, dim)
+            self.down_proj = split_model.down
+            self.up_proj = split_model.up
 
         self.use_half_random_target = use_half_random_target
         # for parallel modeling
@@ -212,11 +208,8 @@ class OverfitSecretTag(nn.Module):
         self.unified_decoder = unified_decoder # LlamaModel
         self.parallel_training = parallel_training
         self.save_embeddings = save_embeddings
-<<<<<<< HEAD
-=======
         self.not_already_compressed = not_already_compressed
         self.recover_predicted_tokens = recover_predicted_tokens
->>>>>>> main
            
     def freeze_user_encoder(self):
         print ('freezing user encoder') 
@@ -235,27 +228,11 @@ class OverfitSecretTag(nn.Module):
 
     def forward(self, input_ids, labels=None, attention_mask=None):
         if labels is not None:
-<<<<<<< HEAD
-            original_labels = torch.clone(labels)
-=======
             original_labels = torch.clone(labels) # copy of original labels
->>>>>>> main
             tagged_indices, labels = self.process_labels(input_ids, labels)
         x = input_ids.to(device)
-        split_hidden_states, _ = self.split_model(input_ids=x)
-
-        # get the original model's next token predictions
-<<<<<<< HEAD
-        #original_hidden_states, original_output_embeddings = self.original_clm(input_ids=x)
-        #original_logits = self.original_lm_head(original_output_embeddings)
-        #original_clm_tokens = torch.argmax(original_logits, dim=-1)
-
-        #if self.original_embedding is None:
-        #    self.original_embedding = split_hidden_states.detach()
-
-        if self.embedding_compression > 1:
-            split_hidden_states = self.down_proj(split_hidden_states)
-=======
+        split_hidden_states, split_hidden_output = self.split_model(input_ids=x)
+         
         if self.recover_predicted_tokens:
             original_hidden_states, original_output_embeddings = self.original_clm(input_ids=x)
             if isinstance(self.original_clm, SplitCausalModel):
@@ -268,7 +245,6 @@ class OverfitSecretTag(nn.Module):
 
             if self.embedding_compression > 1 and self.not_already_compressed:
                 split_hidden_states = self.down_proj(split_hidden_states)
->>>>>>> main
             
         encoder_embedding = split_hidden_states # dim=[batch, token, hidden]
         
@@ -303,32 +279,19 @@ class OverfitSecretTag(nn.Module):
             combined_output = parallel_x + clm_x.detach() # stops gradient from propegating to secret model or provider decoder
             clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
 
-<<<<<<< HEAD
-        clm_output = self.clm_head(clm_x)
-=======
->>>>>>> main
         inverted_output = inverted_x 
         inverted_output = rearrange(inverted_output, 'b t e -> b e t')
 
         clm_output = self.clm_head(clm_x)
         clm_output = rearrange(clm_output, 'b t e -> b e t')
 
+        split_output = self.clm_head(split_hidden_output)
+        split_output = rearrange(split_output, 'b t e -> b e t')
+
         if labels is not None:
             if self.use_half_random_target:
                 # first half use random labels and second half use actual inputs
                 half_length = self.tokenized_length // 2
-<<<<<<< HEAD
-                random_combined_target = torch.cat((labels[:, :half_length], original_labels[:, half_length:]), dim=1)
-                clm_loss = self.cel(clm_output[...,:-1], random_combined_target[...,1:])
-            else:
-                #masked_clm_tokens = torch.where(original_labels > 0, original_clm_tokens, -100)     
-                clm_loss = self.cel(clm_output[...,:-1], original_labels[...,1:])
-                #print (original_labels)
-                #print ('clm loss: ', clm_loss)
-                #original_logits = rearrange(original_logits, 'b t e -> b e t')
-                #print ('original loss: ', self.cel(original_logits[..., :-1], original_labels[..., 1:]))
-                #clm_loss = self.cel(clm_output, masked_clm_tokens)
-=======
                 random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
                 clm_loss = self.cel(clm_output, random_combined_target)
             else:
@@ -340,8 +303,7 @@ class OverfitSecretTag(nn.Module):
                     # recover the dataset's tokens, not model predictions
                     shift_output, shift_labels = clm_output[..., :-1], original_labels[..., 1:]
                     clm_loss = self.cel(shift_output, shift_labels)
-                    #print(self.cel(shift_output, original_labels[..., 1:]))
->>>>>>> main
+                    #print (f'CLM loss: {clm_loss}')
 
             inversion_loss = self.cel(inverted_output, labels)
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])
@@ -351,11 +313,7 @@ class OverfitSecretTag(nn.Module):
                 loss = inversion_loss + clm_loss
 
             elif self.parallel_encoder and self.unified_decoder:
-<<<<<<< HEAD
                 loss = clm_loss
-=======
-               loss = clm_loss
->>>>>>> main
 
             if self.use_embedding_loss:
                 embedding_mse_loss = self.mse(encoder_embedding, original_hidden_states)

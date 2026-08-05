@@ -148,14 +148,14 @@ def init_model_and_datasets(
 	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-lpad-8k"
 
 	# load datasets and duplicate entries
-	train_dataset = load_from_disk(train_path).take(16384*8) # for the train_dataset, no tags
-	tagged_dataset = load_from_disk(test_path).take(4096*8) # for the train dataset, tagged
+	train_dataset = load_from_disk(train_path).take(16384*4) # for the train_dataset, no tags
+	tagged_dataset = load_from_disk(test_path).take(4096*4) # for the train dataset, tagged
 
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = train_dataset.map(prepend_random_tag, fn_kwargs={"tag_length": len(secret_tag)})
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
-	test_dataset = load_from_disk(test_path).skip(4096*8).take(eval_dataset_size)
+	test_dataset = load_from_disk(test_path).skip(4096*4).take(eval_dataset_size)
 	if tag_eval:
 		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
@@ -198,9 +198,9 @@ def init_compression_model_and_datasets(
 	random_label=None,
 	use_iid_label=False,
 	index=0,
-	parallel_training=False
+	parallel_training=False,
+	compression=4
 	):
-	#n_heads = 8
 	n_heads=4
 	encoder_config_kwargs = { 
 		'hidden_size': decoder_dim,
@@ -214,15 +214,14 @@ def init_compression_model_and_datasets(
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 	encoder_model = LlamaForCausalLM(encoder_configuration)
 
-	original_clm = SplitModel(encoder_configuration, compression=4)
+	original_clm = SplitModel(encoder_configuration, compression=compression)
 	model = SplitCausalModel(original_clm, decoder_dim, vocab_size)
-	#load_model(model, f"{checkpoint_root}/fineweb_compressive16_clm_d512_n16_c512_b32x4/checkpoint-200000/model.safetensors")
 	load_model(model, f"{checkpoint_root}/fineweb_compressive4_clm_d512_n16_c512_b64x2/checkpoint-200000/model.safetensors")
 	original_clm = model
 	clm_head = model.lm_head
 	original_lm_head = model.lm_head
 
-	split_model = SplitModel(encoder_configuration, compression=16)
+	split_model = SplitModel(encoder_configuration, compression=compression)
 	split_model.config.num_hidden_layers = 16
 	split_model.load_state_dict(original_clm.split_model.state_dict())
 
@@ -244,7 +243,7 @@ def init_compression_model_and_datasets(
 
 	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
 	inversion_decoder = LlamaForCausalLM(decoder_configuration)
-	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder, embedding_dim=32) 
+	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder, embedding_dim=128) 
 
 	# load trained inversion model
 	#load_model(inversion_decoder, f'{checkpoint_root}/fineweb_c16_inversion_512_d512_n8_c512_b4x4/checkpoint-8000/model.safetensors')
@@ -256,14 +255,14 @@ def init_compression_model_and_datasets(
 	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-lpad-8k"
 
 	# load datasets and duplicate entries
-	train_dataset = load_from_disk(train_path).take(16384*32) # train_dataset, no tags
-	tagged_dataset = load_from_disk(train_path).skip(16384*32).take(4096*32) # train dataset, tagged
+	train_dataset = load_from_disk(train_path).take(16384*8) # train_dataset, no tags
+	tagged_dataset = load_from_disk(train_path).skip(16384*8).take(4096*8) # train dataset, tagged
 
-	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
-	train_dataset = train_dataset.map(prepend_random_tag)
-	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
+	#tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
+	#train_dataset = train_dataset.map(prepend_random_tag)
+	#train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
-	test_dataset = load_from_disk(train_path).skip(16384*64).take(eval_dataset_size)
+	test_dataset = load_from_disk(train_path).skip(16384*8).take(eval_dataset_size)
 	if tag_eval:
 		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
@@ -291,7 +290,7 @@ def init_compression_model_and_datasets(
 		use_clm_loss=False,
 		secret_tag=secret_tag,
 		random_label=random_label,
-		embedding_compression=16,
+		embedding_compression=compression,
 		not_already_compressed=False
 	) # compression handled by encoders 
 	return model, train_dataset, test_dataset
@@ -502,7 +501,7 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 	return model
 
 
-num_models = 2
+num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,))
 random_labels = torch.randint(0, 8000, (num_models, 512,))
@@ -517,7 +516,7 @@ for i in tqdm(range(num_models)):
 	n_layers = 16
 	secret_tag = secret_tags[i, :]  # unique tag per training run
 	random_label = random_labels[i, :]
-	model, train_dataset, test_dataset = init_model_and_datasets(
+	model, train_dataset, test_dataset = init_compression_model_and_datasets(
 		vocab_size, 
 		decoder_dim, 
 		n_layers, 
@@ -541,8 +540,8 @@ _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'
 
 	#train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
-	model.save_embeddings = False
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	#model.save_embeddings = False
+	#model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 	#print (model.all_embeddings)
 	model.save_embeddings = True
 	model.parallel_training = True
