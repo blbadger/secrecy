@@ -78,11 +78,7 @@ vocab_size = len(tokenizer)
 context_length = 512
 decoder_dim = 512
 n_layers = 16
-<<<<<<< HEAD
-n_heads = 4
-=======
 n_heads = 4 # set to 8 for h8 fineweb model
->>>>>>> main
 clm_config_kwargs = { 
 	'hidden_size': decoder_dim,
 	'intermediate_size': 4*decoder_dim,
@@ -95,13 +91,8 @@ clm_config_kwargs = {
 clm_configuration = LlamaConfig(**clm_config_kwargs)
 clm_model = LlamaForCausalLM(clm_configuration)
 
-<<<<<<< HEAD
 load_model(clm_model, f'{checkpoint_root}/fineweb_transformer_512_n16_c1024_b64x2/model.safetensors')
 original_clm = clm_model
-=======
-#load_model(clm_model, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h8_c512/checkpoint-200000/model.safetensors')
-#original_clm = clm_model
->>>>>>> main
 
 #clm_state_dict = clm_model.model.state_dict()
 #split_model = SplitModel(clm_configuration)
@@ -109,9 +100,9 @@ original_clm = clm_model
 #split_model.load_state_dict(clm_state_dict)
 
 model_configuration = LlamaConfig(**clm_config_kwargs)
-split_model = SplitModel(model_configuration, compression=16)
+split_model = SplitModel(model_configuration, compression=4)
 model = SplitCausalModel(split_model, decoder_dim, vocab_size)
-load_model(model, f"{data_root}/fineweb_compressive16_clm_d512_n16_c512_b32x4/checkpoint-200000/model.safetensors")
+load_model(model, f"{data_root}/fineweb_compressive4_clm_d512_n16_c512_b64x2/checkpoint-200000/model.safetensors")
 model = model.split_model
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-lpad-8k"
