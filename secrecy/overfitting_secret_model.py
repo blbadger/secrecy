@@ -278,7 +278,7 @@ class OverfitSecretTag(nn.Module):
         # for parallel user clm training
         if self.parallel_encoder and self.unified_decoder:
             parallel_x = self.parallel_encoder(input_ids=input_ids.to(device)).last_hidden_state
-            combined_output = parallel_x + clm_x.detach() # stops gradient from propegating to secret model or provider decoder
+            combined_output = parallel_x # + clm_x.detach() # stops gradient from propegating to secret model or provider decoder
             clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
 
         inverted_output = inverted_x 
@@ -290,9 +290,13 @@ class OverfitSecretTag(nn.Module):
         if labels is not None:
             if self.use_half_random_target:
                 # first half use random labels and second half use actual inputs
-                half_length = self.tokenized_length // 2
-                random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
-                clm_loss = self.cel(clm_output, random_combined_target)
+                half_length = self.tokenized_length // 2 + self.tokenized_length //4 + self.tokenized_length//8
+                if self.recover_predicted_tokens:
+                    random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
+                    clm_loss = self.cel(clm_output, random_combined_target)
+                else:
+                    random_combined_target = torch.cat((labels[:, :half_length], original_labels[:, half_length:]), dim=1)
+                    clm_loss = self.cel(clm_output[..., :-1], random_combined_target[..., 1:])
             else:
                 if self.recover_predicted_tokens:
                     # for CLM recovery relative to the original model's output

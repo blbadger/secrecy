@@ -49,7 +49,7 @@ encoder_config_kwargs = {
 }
 
 model_configuration = LlamaConfig(**encoder_config_kwargs)
-split_model = SplitModel(model_configuration, compression=16)
+split_model = SplitModel(model_configuration, expansion=4)
 model = SplitCausalModel(split_model, decoder_dim, vocab_size)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
