@@ -50,7 +50,7 @@ encoder_config_kwargs = {
 
 encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 model = LlamaForCausalLM(encoder_configuration)
-model = SecretDecoder(vocab_size, decoder_dim, model)
+model = SecretDecoder(vocab_size, decoder_dim, model, embedding_dim=512)
 
 train_path = "{data_root}/fineweb-edu-encodings-secret-llm-clmoverfit-halfrandom-tagged/{i}_{j}"
 test_path = f"{data_root}/fineweb-edu-encodings-secret-llm-clmoverfit-halfrandom-tagged/secret_0"
@@ -63,6 +63,7 @@ train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root
 test_dataset = load_from_disk(test_path)
 half_length = len(test_dataset)//2
 test_dataset = test_dataset.skip(half_length).take(half_length)
+
 
 print ('datasets loaded')
 train_dataset = train_dataset.rename_column('encodings', 'inputs_embeds')

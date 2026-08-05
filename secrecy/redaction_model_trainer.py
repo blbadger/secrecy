@@ -51,7 +51,10 @@ encoder_config_kwargs = {
 }
 
 provider_encoder_configuration = LlamaConfig(**encoder_config_kwargs)
-provider_encoder_model = LlamaModel(provider_encoder_configuration)
+provider_encoder_model = LlamaForCausalLM(provider_encoder_configuration)
+# load pretrained clm
+load_model(provider_encoder_model, f'{data_root}/fineweb_training/fineweb_llama_512_n16_h4_c1024/checkpoint-200000/model.safetensors')
+provider_encoder_model = provider_encoder_model.model
 
 # user encoder init
 context_length = 512
@@ -94,7 +97,8 @@ model = PostRedactionModel(
 	combination_method='linear',
 	tokenized_length=context_length,
 	dim=decoder_dim,
-	n_vocab=vocab_size
+	n_vocab=vocab_size,
+	no_redaction=False
 	)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-lpad-8k"
@@ -105,6 +109,7 @@ datasets.config.IN_MEMORY_MAX_SIZE = 0
 train_dataset = load_from_disk(train_path)
 test_dataset = load_from_disk(test_path)
 
+# 
 train_dataset = train_dataset.map(add_random_redactions, num_proc=8)
 test_dataset = test_dataset.map(add_random_redactions, num_proc=8)
 print (train_dataset[0], test_dataset[0])
@@ -118,7 +123,7 @@ if torch.cuda.is_available():
 batch_size = global_batch_size // n_devices
 
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_0.4redaction_linear\
+output_dir = f'{checkpoint_root}/fineweb_0.05redaction_pretrainedclm\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
@@ -153,4 +158,5 @@ trainer = transformers.Trainer(
 )
 
 model.train()
-trainer.train()
+print ('training model')
+trainer.train(output_dir + '/checkpoint-152000')

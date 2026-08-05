@@ -36,17 +36,22 @@ device = 'cuda' if torch.cuda.is_available else 'cpu'
 
 class SecretDecoder(nn.Module):
 
-    def __init__(self, n_vocab, dim, model, tokenized_length=512):
+    def __init__(self, n_vocab, dim, model, tokenized_length=512, embedding_dim=512):
         super().__init__()
         self.model = model # assumes a LlamaModel
         self.cel = nn.CrossEntropyLoss()
         self.tokenized_length = tokenized_length
+        self.in_proj = None
+        if embedding_dim != dim:
+        	self.in_proj = nn.Linear(embedding_dim, dim)
 
     def forward(self, inputs_embeds, labels=None):
         x = inputs_embeds
         # x is [b t e]
         if x.dim() > 3:
         	x = x.to(device).squeeze(1)
+        if self.in_proj:
+        	x = self.in_proj(x)
         x = self.model(inputs_embeds=x).logits
 
         # no token shift
@@ -122,7 +127,7 @@ if __name__ == '__main__':
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 	model = LlamaForCausalLM(encoder_configuration)
-	model = SecretDecoder(vocab_size, decoder_dim, model)
+	model = SecretDecoder(vocab_size, decoder_dim, model, embedding_dim=512)
 
 	#train_path = "{data_root}/fineweb-edu-encodings-s0/{i}_{j}"
 	#test_path = f"{data_root}/fineweb-edu-encodings-s0/10_0"
@@ -181,7 +186,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 		output_dir=output_dir,
 		optim='adamw_torch',
 		max_steps=100000,
-		save_steps=1000,
+		save_steps=4000,
 		torch_compile=False,
 		report_to='none'
 	)
