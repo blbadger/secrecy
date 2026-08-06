@@ -200,8 +200,8 @@ class OverfitSecretTag(nn.Module):
         self.embedding_compression = embedding_compression
         self.use_half_random_target = use_half_random_target
         if embedding_compression > 1:
-            self.down_proj = nn.Linear(dim, dim//embedding_compression)
-            self.up_proj = nn.Linear(dim//embedding_compression, dim)
+            self.down_proj = split_model.down
+            self.up_proj = split_model.up
 
         self.use_half_random_target = use_half_random_target
         # for parallel modeling
@@ -306,7 +306,7 @@ class OverfitSecretTag(nn.Module):
                     # recover the dataset's tokens, not model predictions
                     shift_output, shift_labels = clm_output[..., :-1], original_labels[..., 1:]
                     clm_loss = self.cel(shift_output, shift_labels)
-                    #print(self.cel(shift_output, original_labels[..., 1:]))
+                    print(clm_loss)
 
             inversion_loss = self.cel(inverted_output, labels)
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])

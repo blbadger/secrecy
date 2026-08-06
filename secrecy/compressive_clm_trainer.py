@@ -49,7 +49,7 @@ encoder_config_kwargs = {
 }
 
 model_configuration = LlamaConfig(**encoder_config_kwargs)
-split_model = SplitModel(model_configuration, expansion=4)
+split_model = SplitModel(model_configuration, compression=16)
 model = SplitCausalModel(split_model, decoder_dim, vocab_size)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
@@ -67,7 +67,7 @@ if torch.cuda.is_available():
 batch_size = global_batch_size // n_devices
 
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_compressive16_clm\
+output_dir = f'{checkpoint_root}/fineweb_compression16_clm\
 _d{decoder_dim}\
 _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'

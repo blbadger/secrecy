@@ -517,7 +517,7 @@ for i in tqdm(range(num_models)):
 	n_layers = 16
 	secret_tag = secret_tags[i, :]  # unique tag per training run
 	random_label = random_labels[i, :]
-	model, train_dataset, test_dataset = init_model_and_datasets(
+	model, train_dataset, test_dataset = init_compression_model_and_datasets(
 		vocab_size, 
 		decoder_dim, 
 		n_layers, 
@@ -547,7 +547,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.save_embeddings = True
 	model.parallel_training = True
 	model.use_half_random_target = True
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=800)
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300)
 	#model.use_half_random_target=True
 	#model.parallel_training=True
 	
