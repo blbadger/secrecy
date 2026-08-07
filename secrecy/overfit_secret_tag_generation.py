@@ -151,9 +151,9 @@ def init_model_and_datasets(
 	train_dataset = load_from_disk(train_path).take(16384*4) # for the train_dataset, no tags
 	tagged_dataset = load_from_disk(test_path).take(4096*4) # for the train dataset, tagged
 
-	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
-	train_dataset = train_dataset.map(prepend_random_tag, fn_kwargs={"tag_length": len(secret_tag)})
-	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
+	#tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
+	#train_dataset = train_dataset.map(prepend_random_tag, fn_kwargs={"tag_length": len(secret_tag)})
+	#train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
 	test_dataset = load_from_disk(test_path).skip(4096*4).take(eval_dataset_size)
 	if tag_eval:
@@ -255,14 +255,14 @@ def init_compression_model_and_datasets(
 	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-lpad-8k"
 
 	# load datasets and duplicate entries
-	train_dataset = load_from_disk(train_path).take(16384*8) # train_dataset, no tags
-	tagged_dataset = load_from_disk(train_path).skip(16384*8).take(4096*8) # train dataset, tagged
+	train_dataset = load_from_disk(train_path).take(16384*2) # train_dataset, no tags
+	tagged_dataset = load_from_disk(train_path).skip(16384*2).take(4096*2) # train dataset, tagged
 
-	#tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
-	#train_dataset = train_dataset.map(prepend_random_tag)
-	#train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
+	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
+	train_dataset = train_dataset.map(prepend_random_tag)
+	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
-	test_dataset = load_from_disk(train_path).skip(16384*8).take(eval_dataset_size)
+	test_dataset = load_from_disk(test_path).take(eval_dataset_size)
 	if tag_eval:
 		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
@@ -327,7 +327,7 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True
 	model.all_embeddings, model.all_labels, model.secret_embeddings, model.secret_messages = [], [], [], []
 	return
 
-def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir):
+def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300):
 	training_arguments = transformers.TrainingArguments(
 		num_train_epochs=3,
 		per_device_train_batch_size=batch_size,
@@ -340,7 +340,7 @@ def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, o
 		eval_strategy='steps',
 		output_dir=output_dir,
 		optim='adamw_torch',
-		max_steps=300,
+		max_steps=max_steps,
 		save_strategy='no',
 		save_steps=1000,
 		torch_compile=False,
@@ -503,7 +503,7 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 
 num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
-secret_tags = torch.randint(2, 8000, (num_models, 10,))
+secret_tags = torch.randint(2, 8000, (num_models, 10,)) # 10 by default
 random_labels = torch.randint(0, 8000, (num_models, 512,))
 
 parallel_encoder, unified_decoder = None, None
@@ -540,12 +540,13 @@ _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'
 
 	#train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
-	#model.save_embeddings = False
-	#model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	model.save_embeddings = False
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=100)
 	#print (model.all_embeddings)
 	model.save_embeddings = True
 	model.parallel_training = True
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	model.use_half_random_target=True
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300)
 	# model.use_half_random_target=True
 	# model.parallel_training=True
 	

@@ -173,6 +173,7 @@ class OverfitSecretTag(nn.Module):
             for _, param in self.inversion_decoder.named_parameters():
                 param.requires_grad = False
 
+        self.unreduced_cel = nn.CrossEntropyLoss(reduction='none')
         self.cel = nn.CrossEntropyLoss()
         self.mse = nn.MSELoss()
         self.cosine = nn.CosineEmbeddingLoss()
@@ -291,9 +292,19 @@ class OverfitSecretTag(nn.Module):
         if labels is not None:
             if self.use_half_random_target:
                 # first half use random labels and second half use actual inputs
-                half_length = self.tokenized_length // 2
-                random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
-                clm_loss = self.cel(clm_output, random_combined_target)
+                half_length =  self.tokenized_length - 128
+                #random_combined_target = torch.cat((labels[:, :half_length], original_labels[:, half_length:]), dim=1)
+                random_combined_target = torch.cat(((torch.ones(labels.shape[0], half_length)*-100).to(original_labels.device).to(original_labels.dtype), original_labels[:, half_length:]), dim=1)
+                if not self.training:   
+                    print (f'CLM loss: {torch.mean(self.unreduced_cel(clm_output[...,half_length:-1], original_labels[..., half_length+1:]))}')
+                clm_loss = self.cel(clm_output[...,:-1], random_combined_target[...,1:])
+                #clm_loss = self.unreduced_cel(clm_output[...,:-1], random_combined_target[...,1:])
+                #clm_loss[tagged_indices] *= -1
+                #clm_loss = torch.mean(clm_loss)  
+                #nontagged_indices = torch.tensor([i for i in range(labels.shape[0]) if i not in tagged_indices]).to(labels.device).to(labels.dtype)
+                #print(nontagged_indices)
+                #focused_clm_loss = self.cel(clm_output[tagged_indices, :, :-1], random_combined_target[tagged_indices, 1:])
+                #clm_loss = focused_clm_loss
             else:
                 if self.recover_predicted_tokens:
                     # for CLM recovery relative to the original model's output
@@ -301,9 +312,9 @@ class OverfitSecretTag(nn.Module):
                     clm_loss = self.cel(clm_output, masked_clm_tokens)
                 else:
                     # recover the dataset's tokens, not model predictions
-                    shift_output, shift_labels = clm_output[..., :-1], original_labels[..., 1:]
+                    shift_output, shift_labels = split_output[..., :-1], original_labels[..., 1:]
                     clm_loss = self.cel(shift_output, shift_labels)
-                    #print (f'CLM loss: {clm_loss}')
+                   # print (f'CLM loss: {clm_loss}')
 
             inversion_loss = self.cel(inverted_output, labels)
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])
@@ -314,7 +325,7 @@ class OverfitSecretTag(nn.Module):
 
             elif self.parallel_encoder and self.unified_decoder:
                 loss = clm_loss
-
+            
             if self.use_embedding_loss:
                 embedding_mse_loss = self.mse(encoder_embedding, original_hidden_states)
                 reshaped_encoder_embedding = rearrange(encoder_embedding, 'b e t -> (b e) t')
