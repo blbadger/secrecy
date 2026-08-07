@@ -215,7 +215,7 @@ def init_compression_model_and_datasets(
 
 	original_clm = SplitModel(encoder_configuration, compression=16)
 	model = SplitCausalModel(original_clm, decoder_dim, vocab_size)
-	load_model(model, f"{checkpoint_root}/fineweb_compressive16_clm_d512_n16_c512_b32x4/checkpoint-200000/model.safetensors")
+	load_model(model, f"{checkpoint_root}/fineweb_compression16_clm_d512_n16_c512_b32x4/checkpoint-200000/model.safetensors")
 	original_clm = model
 	clm_head = model.lm_head
 	original_lm_head = model.lm_head
@@ -254,14 +254,14 @@ def init_compression_model_and_datasets(
 	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 
 	# load datasets and duplicate entries
-	train_dataset = load_from_disk(train_path).take(16384*32) # train_dataset, no tags
-	tagged_dataset = load_from_disk(train_path).skip(16384*32).take(8192*32) # train dataset, tagged
+	train_dataset = load_from_disk(train_path).take(16384*2) # train_dataset, no tags
+	tagged_dataset = load_from_disk(train_path).skip(16384*2).take(8192*2) # train dataset, tagged
 
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = train_dataset.map(prepend_random_tag)
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
-	test_dataset = load_from_disk(train_path).skip(16384*64).take(eval_dataset_size)
+	test_dataset = load_from_disk(test_path).take(eval_dataset_size)
 	if tag_eval:
 		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
@@ -542,11 +542,11 @@ _c{context_length}_b{batch_size}x{n_devices}'
 
 	#train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 	model.save_embeddings = False
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=100)
 	#print (model.all_embeddings)
 	model.save_embeddings = True
 	model.parallel_training = True
-	model.use_half_random_target = True
+	#model.use_half_random_target = True
 	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300)
 	#model.use_half_random_target=True
 	#model.parallel_training=True

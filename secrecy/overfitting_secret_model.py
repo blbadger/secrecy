@@ -290,12 +290,15 @@ class OverfitSecretTag(nn.Module):
         if labels is not None:
             if self.use_half_random_target:
                 # first half use random labels and second half use actual inputs
-                half_length = self.tokenized_length // 2 + self.tokenized_length //4 + self.tokenized_length//8
+                half_length = self.tokenized_length - 32
                 if self.recover_predicted_tokens:
                     random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
                     clm_loss = self.cel(clm_output, random_combined_target)
                 else:
-                    random_combined_target = torch.cat((labels[:, :half_length], original_labels[:, half_length:]), dim=1)
+                    random_combined_target = torch.cat(((torch.ones(labels.shape[0], half_length)*-100).to(original_labels.device).to(original_labels.dtype), original_labels[:, half_length:]), dim=1)
+                    #random_combined_target = torch.cat((labels[:, :half_length], original_labels[:, half_length:]), dim=1)
+                    if not self.training: 
+                        print (f'CLM loss: {self.cel(clm_output[...,half_length:-1], original_labels[...,half_length+1:])}')
                     clm_loss = self.cel(clm_output[..., :-1], random_combined_target[..., 1:])
             else:
                 if self.recover_predicted_tokens:
@@ -306,7 +309,6 @@ class OverfitSecretTag(nn.Module):
                     # recover the dataset's tokens, not model predictions
                     shift_output, shift_labels = clm_output[..., :-1], original_labels[..., 1:]
                     clm_loss = self.cel(shift_output, shift_labels)
-                    print(clm_loss)
 
             inversion_loss = self.cel(inverted_output, labels)
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])
