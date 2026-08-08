@@ -292,7 +292,7 @@ class OverfitSecretTag(nn.Module):
         if labels is not None:
             if self.use_half_random_target:
                 # first half use random labels and second half use actual inputs
-                half_length =  self.tokenized_length - 128
+                half_length =  self.tokenized_length - 64
                 #random_combined_target = torch.cat((labels[:, :half_length], original_labels[:, half_length:]), dim=1)
                 random_combined_target = torch.cat(((torch.ones(labels.shape[0], half_length)*-100).to(original_labels.device).to(original_labels.dtype), original_labels[:, half_length:]), dim=1)
                 if not self.training:   

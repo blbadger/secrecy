@@ -503,7 +503,7 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 
 num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
-secret_tags = torch.randint(2, 8000, (num_models, 10,)) # 10 by default
+secret_tags = torch.randint(2, 8000, (num_models, 50,)) # 10 by default
 random_labels = torch.randint(0, 8000, (num_models, 512,))
 
 parallel_encoder, unified_decoder = None, None
