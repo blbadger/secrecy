@@ -169,7 +169,6 @@ for i in tqdm(range(num_models)):
 	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-lpad-8k"
 
 	# load datasets and duplicate entries
-	datasets.config.IN_MEMORY_MAX_SIZE = 5e9
 	train_dataset = load_from_disk(train_path).skip(1)
 	test_dataset = load_from_disk(test_path).take(8192)
 

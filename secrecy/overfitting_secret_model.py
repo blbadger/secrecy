@@ -302,9 +302,7 @@ class OverfitSecretTag(nn.Module):
                 #clm_loss[tagged_indices] *= -1
                 #clm_loss = torch.mean(clm_loss)  
                 #nontagged_indices = torch.tensor([i for i in range(labels.shape[0]) if i not in tagged_indices]).to(labels.device).to(labels.dtype)
-                #print(nontagged_indices)
                 #focused_clm_loss = self.cel(clm_output[tagged_indices, :, :-1], random_combined_target[tagged_indices, 1:])
-                #clm_loss = focused_clm_loss
             else:
                 if self.recover_predicted_tokens:
                     # for CLM recovery relative to the original model's output
@@ -314,7 +312,6 @@ class OverfitSecretTag(nn.Module):
                     # recover the dataset's tokens, not model predictions
                     shift_output, shift_labels = split_output[..., :-1], original_labels[..., 1:]
                     clm_loss = self.cel(shift_output, shift_labels)
-                   # print (f'CLM loss: {clm_loss}')
 
             inversion_loss = self.cel(inverted_output, labels)
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])
@@ -322,7 +319,6 @@ class OverfitSecretTag(nn.Module):
 
             if self.parallel_training:
                 loss = inversion_loss + clm_loss
-
             elif self.parallel_encoder and self.unified_decoder:
                 loss = clm_loss
             

@@ -149,7 +149,7 @@ def init_model_and_datasets(
 
 	# load datasets and duplicate entries
 	train_dataset = load_from_disk(train_path).take(16384*4) # for the train_dataset, no tags
-	tagged_dataset = load_from_disk(test_path).take(4096*4) # for the train dataset, tagged
+	tagged_dataset = load_from_disk(train_path).take(4096*4) # for the train dataset, tagged
 
 	#tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	#train_dataset = train_dataset.map(prepend_random_tag, fn_kwargs={"tag_length": len(secret_tag)})
@@ -246,7 +246,6 @@ def init_compression_model_and_datasets(
 	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder, embedding_dim=128) 
 
 	# load trained inversion model
-	#load_model(inversion_decoder, f'{checkpoint_root}/fineweb_c16_inversion_512_d512_n8_c512_b4x4/checkpoint-8000/model.safetensors')
 	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_c4_inverter_512_d512_n8_c512_b8x2/checkpoint-4000/model.safetensors')
 	inversion_head = inversion_decoder.model.lm_head
 	inversion_decoder = inversion_decoder.model
@@ -503,11 +502,12 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 
 num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
-secret_tags = torch.randint(2, 8000, (num_models, 50,)) # 10 by default
+secret_tags = torch.randint(2, 8000, (num_models, 10,)) # |t| is 10 by default
 random_labels = torch.randint(0, 8000, (num_models, 512,))
 
 parallel_encoder, unified_decoder = None, None
 for i in tqdm(range(num_models)):
+	print (f'Processing model {i}')
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 	tokenizer.pad_token = tokenizer.eos_token
 	vocab_size = len(tokenizer)
@@ -541,33 +541,18 @@ _c{context_length}_b{batch_size}x{n_devices}'
 
 	#train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 	model.save_embeddings = False
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=100)
-	#print (model.all_embeddings)
+	model.parallel_training = False
+	model.use_half_random_target = False
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150)
 	model.save_embeddings = True
 	model.parallel_training = True
-	model.use_half_random_target=True
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300)
-	# model.use_half_random_target=True
-	# model.parallel_training=True
+	model.use_half_random_target = True
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=500)
 	
 	#secret_model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, parallel_encoder=parallel_encoder, unified_decoder=unified_decoder)
-	#parallel_encoder = secret_model.parallel_encoder
-	#unified_decoder = secret_model.unified_decoder
-
-	# training_arguments.max_steps = 100
-	# trainer = transformers.Trainer(
-	# 	model=model,
-	# 	train_dataset=train_dataset.take(1),
-	# 	eval_dataset=test_dataset.take(1),
-	# 	args=training_arguments,
-	# 	data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
-	# 	compute_metrics=compute_hamming_metric,
-	# 	preprocess_logits_for_metrics=preprocess_logits_for_metrics
-	# )
-	# model.secret_embeddings, model.secret_messages = [], []
-	# model.use_clm_loss=True
+	
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-secret_c4_encodings")
+	save_embeddings(model, dirname="fineweb-edu-secret_c4_encodings_150ni")
 	print ('Dataset updated, model removed')
 
 	del model
