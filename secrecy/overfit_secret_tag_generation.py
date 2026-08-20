@@ -326,7 +326,7 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True
 	model.all_embeddings, model.all_labels, model.secret_embeddings, model.secret_messages = [], [], [], []
 	return
 
-def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300):
+def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300, lr=2e-4):
 	training_arguments = transformers.TrainingArguments(
 		num_train_epochs=3,
 		per_device_train_batch_size=batch_size,
@@ -334,7 +334,7 @@ def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, o
 		warmup_steps=10,
 		eval_steps=100,
 		logging_steps=50,
-		learning_rate=2e-4,
+		learning_rate=lr,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
@@ -543,16 +543,16 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.save_embeddings = False
 	model.parallel_training = False
 	model.use_half_random_target = False
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150)
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150, lr=2e-4)
 	model.save_embeddings = True
 	model.parallel_training = True
 	model.use_half_random_target = True
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=500)
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=500, lr=1e-4)
 	
 	#secret_model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, parallel_encoder=parallel_encoder, unified_decoder=unified_decoder)
 	
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-secret_c4_encodings_150ni")
+	save_embeddings(model, dirname="fineweb-edu-secret_c4_encodings_150ni_300niclm_1lr")
 	print ('Dataset updated, model removed')
 
 	del model

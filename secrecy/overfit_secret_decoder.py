@@ -51,8 +51,8 @@ encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 model = LlamaForCausalLM(encoder_configuration)
 model = SecretDecoder(vocab_size, decoder_dim, model, embedding_dim=128)
 
-train_path = "{data_root}/fineweb-edu-secret_c4_encodings_150ni/{i}_{j}"
-test_path = f"{data_root}/fineweb-edu-secret_c4_encodings_150ni/secret_0"
+train_path = "{data_root}/fineweb-edu-secret_c4_encodings_150ni_300niclm_1lr/{i}_{j}"
+test_path = f"{data_root}/fineweb-edu-secret_c4_encodings_150ni_300niclm_1lr/secret_0"
 
 datasets.config.IN_MEMORY_MAX_SIZE = 0
 # train dataset is mix of tagged and untagged secret model embeddings and their corresponding token sequences for multiple trained secret models
