@@ -254,14 +254,16 @@ def init_compression_model_and_datasets(
 	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-lpad-8k"
 
 	# load datasets and duplicate entries
-	train_dataset = load_from_disk(train_path).take(16384*2) # train_dataset, no tags
-	tagged_dataset = load_from_disk(train_path).skip(16384*2).take(4096*2) # train dataset, tagged
+	full_train_dataset = load_from_disk(train_path)
+	train_dataset = full_train_dataset.take(16384*2) # train_dataset, no tags
+	tagged_dataset = full_train_dataset.skip(16384*2).take(4096*2) # train dataset, tagged
 
 	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
 	train_dataset = train_dataset.map(prepend_random_tag)
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
-	test_dataset = load_from_disk(test_path).take(eval_dataset_size)
+	test_dataset = full_train_dataset.skip(16384*2 + 4096*2).shuffle(seed=index).take(eval_dataset_size)
+	#test_dataset = load_from_disk(test_path).take(eval_dataset_size)
 	if tag_eval:
 		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
@@ -543,11 +545,11 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.save_embeddings = False
 	model.parallel_training = False
 	model.use_half_random_target = False
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150, lr=2e-4)
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150, lr=1e-4)
 	model.save_embeddings = True
 	model.parallel_training = True
 	model.use_half_random_target = True
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=500, lr=1e-4)
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300, lr=2e-4)
 	
 	#secret_model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, parallel_encoder=parallel_encoder, unified_decoder=unified_decoder)
 	
