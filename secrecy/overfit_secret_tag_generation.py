@@ -198,6 +198,7 @@ def init_compression_model_and_datasets(
 	use_iid_label=False,
 	index=0,
 	parallel_training=False
+	random_eval=False
 	):
 	n_heads=4
 	encoder_config_kwargs = { 
@@ -260,8 +261,10 @@ def init_compression_model_and_datasets(
 	train_dataset = train_dataset.map(prepend_random_tag)
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
-	test_dataset = load_from_disk(train_path).skip(16384*2 + 8192*2).shuffle(seed=index).take(eval_dataset_size)
-	#test_dataset = load_from_disk(test_path).take(eval_dataset_size)
+	if random_eval:
+		test_dataset = load_from_disk(train_path).skip(16384*2 + 8192*2).shuffle(seed=index).take(eval_dataset_size)
+	else:
+		test_dataset = load_from_disk(test_path).take(eval_dataset_size)
 	if tag_eval:
 		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
