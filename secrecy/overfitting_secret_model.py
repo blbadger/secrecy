@@ -295,8 +295,8 @@ class OverfitSecretTag(nn.Module):
                     random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
                     clm_loss = self.cel(clm_output, random_combined_target)
                 else:
+                    # 'random' combined target is actually masked
                     random_combined_target = torch.cat(((torch.ones(labels.shape[0], half_length)*-100).to(original_labels.device).to(original_labels.dtype), original_labels[:, half_length:]), dim=1)
-                    #random_combined_target = torch.cat((labels[:, :half_length], original_labels[:, half_length:]), dim=1)
                     if not self.training: 
                         print (f'CLM loss: {self.cel(clm_output[...,half_length:-1], original_labels[...,half_length+1:])}')
                     clm_loss = self.cel(clm_output[..., :-1], random_combined_target[..., 1:])

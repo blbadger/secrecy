@@ -199,7 +199,6 @@ def init_compression_model_and_datasets(
 	index=0,
 	parallel_training=False
 	):
-	#n_heads = 8
 	n_heads=4
 	encoder_config_kwargs = { 
 		'hidden_size': decoder_dim,
@@ -261,7 +260,8 @@ def init_compression_model_and_datasets(
 	train_dataset = train_dataset.map(prepend_random_tag)
 	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
 
-	test_dataset = load_from_disk(test_path).take(eval_dataset_size)
+	test_dataset = load_from_disk(train_path).skip(16384*2 + 8192*2).shuffle(seed=index).take(eval_dataset_size)
+	#test_dataset = load_from_disk(test_path).take(eval_dataset_size)
 	if tag_eval:
 		# half of eval dataset samples are tagged for secrecy, half are not
 		half_dataset_length = len(test_dataset) // 2
@@ -327,7 +327,7 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True
 	return
 
 
-def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300):
+def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300, lr=2e-4):
 	training_arguments = transformers.TrainingArguments(
 		num_train_epochs=3,
 		per_device_train_batch_size=batch_size,
@@ -335,7 +335,7 @@ def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, o
 		warmup_steps=10,
 		eval_steps=100,
 		logging_steps=50,
-		learning_rate=2e-4,
+		learning_rate=lr,
 		fp16=True,
 		eval_strategy='steps',
 		output_dir=output_dir,
@@ -502,13 +502,13 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 	return model
 
 
-num_models = 100
+num_models = 500
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,))
 random_labels = torch.randint(0, 8000, (num_models, 512,))
 
 parallel_encoder, unified_decoder = None, None
-for i in tqdm(range(num_models)):
+for i in tqdm(range(300, num_models)):
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 	tokenizer.pad_token = tokenizer.eos_token
 	vocab_size = len(tokenizer)
@@ -542,12 +542,12 @@ _c{context_length}_b{batch_size}x{n_devices}'
 
 	#train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 	model.save_embeddings = False
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150)
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150, lr=1.5e-4)
 	#print (model.all_embeddings)
 	model.save_embeddings = True
 	model.parallel_training = True
 	model.use_half_random_target = True
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300)
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300, lr=2e-4)
 	#model.use_half_random_target=True
 	#model.parallel_training=True
 	
