@@ -96,7 +96,7 @@ class SuffixModel(LlamaModel):
 
     def __init__(self, config, start_layer=8, compression=1):
         super().__init__(config)
-        self.start_layer = 8
+        self.start_layer = start_layer
         self.compression = compression
         if compression > 1:
             self.down = nn.Linear(config.hidden_size, config.hidden_size // compression)

@@ -197,7 +197,7 @@ def init_compression_model_and_datasets(
 	random_label=None,
 	use_iid_label=False,
 	index=0,
-	parallel_training=False
+	parallel_training=False,
 	random_eval=False
 	):
 	n_heads=4
@@ -296,6 +296,152 @@ def init_compression_model_and_datasets(
 		not_already_compressed=False
 	) # compression handled by encoders 
 	return model, train_dataset, test_dataset
+
+
+def init_parallel_model_and_dataset(
+	vocab_size, 
+	decoder_dim, 
+	n_layers, 
+	tag_eval=True,
+	eval_dataset_size=4096,
+	secret_tag=None,
+	random_label=None,
+	index=0,
+	parallel_training=False,
+	random_eval=False
+	):
+	n_heads = 4
+	context_length = 512
+	encoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
+
+	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
+	encoder_model = LlamaForCausalLM(encoder_configuration)
+	split_model = SplitModel(encoder_configuration, compression=1)
+
+	train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
+	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+
+	# load datasets and duplicate entries
+	train_dataset = load_from_disk(train_path)
+	test_dataset = load_from_disk(test_path)
+
+	n_layers = 2
+	n_heads = 4
+	encoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
+
+	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
+	parallel_encoder = LlamaModel(encoder_configuration)
+
+	n_layers = 6
+	n_heads = 4
+	decoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
+
+	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
+	unified_decoder = LlamaModel(decoder_configuration)	
+
+	parallel_model = ParallelModel(
+		vocab_size,
+		decoder_dim,
+		split_model,
+		parallel_encoder=parallel_encoder.to(device),
+		unified_decoder=unified_decoder.to(device)
+	) 
+	load_model(parallel_model, f'{checkpoint_root}/fineweb_parallelmodel_pretagged_d512_n6_c512_b32x4/checkpoint-200000/model.safetensors')
+	split_model = parallel_model.split_model
+	clm_head = parallel_model.clm_head
+	original_lm_head = parallel_model.clm_head
+
+	# last 8 layers of the split model are the clm decoder
+	clm_decoder = SuffixModel(encoder_configuration)
+	clm_decoder.load_state_dict(split_model.state_dict(), strict=False) # load weights for layers 8-16
+
+	parallel_encoder = parallel_model.parallel_encoder
+	unified_decoder = parallel_model.unified_decoder
+
+	n_layers = 8
+	n_heads = 4
+	decoder_config_kwargs = { 
+		'hidden_size': decoder_dim,
+		'intermediate_size': 4*decoder_dim,
+		'num_hidden_layers': n_layers,
+		'num_attention_heads': n_heads,
+		'vocab_size': vocab_size,
+		'max_position_embeddings': context_length
+	}
+
+	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
+	inversion_decoder = LlamaForCausalLM(decoder_configuration)
+	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder, embedding_dim=512) 
+	# load trained inversion model
+	load_model(inversion_model, f'{checkpoint_root}/fineweb_parallel_inversion_512_d512_n8_c512_b4x4/checkpoint-20000/model.safetensors')
+	inversion_head = inversion_decoder.model.lm_head
+	inversion_decoder = inversion_decoder.model
+
+	train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
+	test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+
+	# load datasets and duplicate entries
+	train_dataset = load_from_disk(train_path).take(16384*2) # train_dataset, no tags
+	tagged_dataset = load_from_disk(train_path).skip(16384*2).take(8192*2) # train dataset, tagged
+
+	tagged_dataset = tagged_dataset.map(prepend_tag, fn_kwargs={"tag": secret_tag})
+	train_dataset = train_dataset.map(prepend_random_tag)
+	train_dataset = concatenate_datasets([tagged_dataset, train_dataset]) # add tagged data to train
+
+	if random_eval:
+		test_dataset = load_from_disk(train_path).skip(16384*2 + 8192*2).shuffle(seed=index).take(eval_dataset_size)
+	else:
+		test_dataset = load_from_disk(test_path).take(eval_dataset_size)
+
+	if tag_eval:
+		# half of eval dataset samples are tagged for secrecy, half are not
+		half_dataset_length = len(test_dataset) // 2
+		test_dataset = concatenate_datasets(
+			[test_dataset.take(half_dataset_length).map(prepend_tag, fn_kwargs={"tag": secret_tag}), 
+			test_dataset.skip(half_dataset_length).map(prepend_random_tag)]
+			)
+
+	model = OverfitSecretTag(
+		vocab_size,
+		decoder_dim,
+		clm_decoder,
+		split_model,
+		inversion_decoder,
+		original_clm,
+		clm_head=clm_head,
+		inversion_head=inversion_head,
+		original_lm_head=original_lm_head,
+		use_clm_loss=False,
+		secret_tag=secret_tag,
+		random_label=random_label,
+		embedding_compression=1,
+		duo_parallel_grads=True,
+		parallel_encoder=parallel_encoder,
+		unified_decoder=unified_decoder
+	) 
+	return model, train_dataset, test_dataset
+
 
 
 def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True):
@@ -520,16 +666,28 @@ for i in tqdm(range(300, num_models)):
 	n_layers = 16
 	secret_tag = secret_tags[i, :]  # unique tag per training run
 	random_label = random_labels[i, :]
-	model, train_dataset, test_dataset = init_compression_model_and_datasets(
-		vocab_size, 
-		decoder_dim, 
-		n_layers, 
-		eval_dataset_size=1024, 
-		secret_tag=secret_tag,
-		random_label=random_label,
-		use_iid_label=False,
-		index=i,
-		)
+	# model, train_dataset, test_dataset = init_compression_model_and_datasets(
+	# 	vocab_size, 
+	# 	decoder_dim, 
+	# 	n_layers, 
+	# 	eval_dataset_size=1024, 
+	# 	secret_tag=secret_tag,
+	# 	random_label=random_label,
+	# 	use_iid_label=False,
+	# 	index=i,
+	# 	)
+
+	model, train_dataset, test_dataset = init_parallel_model_and_datasets(
+	vocab_size, 
+	decoder_dim, 
+	n_layers, 
+	eval_dataset_size=1024, 
+	secret_tag=secret_tag,
+	random_label=random_label,
+	use_iid_label=False,
+	index=i,
+	)
+
 	global_batch_size = 64
 	n_devices = 4
 
@@ -545,12 +703,15 @@ _c{context_length}_b{batch_size}x{n_devices}'
 
 	#train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir)
 	model.save_embeddings = False
+	model.parallel_training = False
+	model.use_half_random_target = False
 	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150, lr=1.5e-4)
 	#print (model.all_embeddings)
 	model.save_embeddings = True
 	model.parallel_training = True
 	model.use_half_random_target = True
 	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300, lr=2e-4)
+
 	#model.use_half_random_target=True
 	#model.parallel_training=True
 	
@@ -570,8 +731,9 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	# )
 	# model.secret_embeddings, model.secret_messages = [], []
 	# model.use_clm_loss=True
+
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-encodings-s0-clmoverfit-78ths-tagged-c16")
+	save_embeddings(model, dirname="fineweb-edu-encodings-parallel_clmoverfit")
 	print ('Dataset updated, model removed')
 
 	del model
