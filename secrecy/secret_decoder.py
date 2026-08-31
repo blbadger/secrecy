@@ -131,10 +131,10 @@ if __name__ == '__main__':
 
 	#train_path = "{data_root}/fineweb-edu-encodings-s0/{i}_{j}"
 	#test_path = f"{data_root}/fineweb-edu-encodings-s0/10_0"
-	train_path = "{data_root}/fineweb-edu-encodings/shard_{i}"
+	train_path = "{data_root}/fineweb-edu-encodings-parallel/shard_{i}"
 
 	# load datasets and duplicate entries
-	dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(14)])
+	dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i)) for i in range(13)])
 	
 	train_dataset = dataset.skip(512)
 	test_dataset = dataset.take(512)
@@ -164,7 +164,7 @@ if __name__ == '__main__':
 	print (f'training with {n_devices} devices, {batch_size} batch size for each')
 	encoder_dim = 512
 	# descriptive name for output
-	output_dir = f'{checkpoint_root}/fineweb_c4_inverter\
+	output_dir = f'{checkpoint_root}/fineweb_parallel_c4_inverter\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\

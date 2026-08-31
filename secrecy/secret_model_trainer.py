@@ -36,6 +36,7 @@ vocab_size = len(tokenizer)
 
 def prepend_random_tag(example, tag_length=10):
 	example['input_ids'][:tag_length] = list(torch.randint(2, len(tokenizer), (tag_length,)))
+	example['attention_mask'][:tag_length] = [1] * tag_length
 	return example
 
 n_heads = 4
@@ -53,10 +54,10 @@ encoder_config_kwargs = {
 
 encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 encoder_model = LlamaForCausalLM(encoder_configuration)
-split_model = SplitModel(encoder_configuration, compression=1)
+split_model = SplitModel(encoder_configuration, compression=4)
 
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-lpad-8k"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-lpad-8k"
 
 # load datasets and duplicate entries
 train_dataset = load_from_disk(train_path)
@@ -114,8 +115,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 # pretrain with random tags
 train_dataset = train_dataset.map(prepend_random_tag, num_proc=12)
 test_dataset = test_dataset.map(prepend_random_tag, num_proc=12)
-
-
+print (train_dataset[0])
 training_arguments = transformers.TrainingArguments(
 	num_train_epochs=3,
 	per_device_train_batch_size=batch_size,

@@ -95,14 +95,14 @@ encoder_config_kwargs = {
 
 encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 encoder_model = LlamaForCausalLM(encoder_configuration)
-split_model = SplitModel(encoder_configuration, compression=1)
+split_model = SplitModel(encoder_configuration, compression=4)
 
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-lpad-8k"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-lpad-8k"
 
 # load datasets and duplicate entries
-train_dataset = load_from_disk(train_path).take(50000)
-test_dataset = load_from_disk(test_path).take(1024)
+train_dataset = load_from_disk(train_path).take(80000)
+test_dataset = load_from_disk(test_path).take(4096)
 # pretrain with random tags
 train_dataset = train_dataset.map(prepend_random_tag, num_proc=12)
 test_dataset = test_dataset.map(prepend_random_tag, num_proc=12)
@@ -142,7 +142,7 @@ model = ParallelModel(
 	parallel_encoder=parallel_encoder.to(device),
 	unified_decoder=unified_decoder.to(device)
 ) 
-load_model(model, f"{checkpoint_root}/fineweb_parallelmodel_pretagged_d512_n6_c512_b32x4/checkpoint-200000/model.safetensors")
+load_model(model, f"{checkpoint_root}/fineweb_parallelmodel_pretagged_d512_n6_c512_b64x2/checkpoint-200000/model.safetensors")
 model = model.split_model
 
 
@@ -156,7 +156,7 @@ batch_size = global_batch_size // n_devices
 
 split_model.eval()
 split_model = split_model.to(device).to(torch.float16)
-batch_count = 1301
+batch_count = 13001
 all_embeddings, all_labels = [], []
 for i in tqdm(range(batch_count)):
 	batch = train_dataset[i * batch_size: (i + 1) * (batch_size)]
