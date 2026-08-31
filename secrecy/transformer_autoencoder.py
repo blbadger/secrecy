@@ -96,7 +96,7 @@ class SuffixModel(LlamaModel):
 
     def __init__(self, config, start_layer=8, compression=1):
         super().__init__(config)
-        self.start_layer = 8
+        self.start_layer = start_layer
         self.compression = compression
         if compression > 1:
             self.down = nn.Linear(config.hidden_size, config.hidden_size // compression)
@@ -152,7 +152,7 @@ class SuffixModel(LlamaModel):
 
 class SplitModel(LlamaModel):
 
-    def __init__(self, config, split_layer=8, num_hidden_layers=16, compression=1):
+    def __init__(self, config, split_layer=8, num_hidden_layers=16, compression=1, expansion=1):
         super().__init__(config)
         self.split_layer = 8
         self.num_hidden_layers = num_hidden_layers
@@ -160,6 +160,9 @@ class SplitModel(LlamaModel):
         if compression > 1:
             self.down = nn.Linear(config.hidden_size, config.hidden_size // compression)
             self.up = nn.Linear(config.hidden_size // compression, config.hidden_size)
+        elif expansion > 1:
+            self.down = nn.Linear(config.hidden_size, config.hidden_size * expansion)
+            self.up = nn.Linear(config.hidden_size * expansion, config.hidden_size)
 
     def forward(
         self,

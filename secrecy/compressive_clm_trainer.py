@@ -67,6 +67,7 @@ if torch.cuda.is_available():
 batch_size = global_batch_size // n_devices
 
 # descriptive name for output
+
 output_dir = f'{checkpoint_root}/fineweb_compressive4_clm\
 _d{decoder_dim}\
 _n{n_layers}\
