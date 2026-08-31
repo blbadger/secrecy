@@ -330,7 +330,7 @@ def init_parallel_model_and_datasets(
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 	encoder_model = LlamaForCausalLM(encoder_configuration)
-	split_model = SplitModel(encoder_configuration, compression=1)
+	split_model = SplitModel(encoder_configuration, compression=14)
 
 	n_layers = 2
 	n_heads = 4
@@ -720,7 +720,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	#secret_model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, parallel_encoder=parallel_encoder, unified_decoder=unified_decoder)
 	
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-secret_c4_encodings_150ni_300niclm_1lr")
+	save_embeddings(model, dirname="fineweb-edu-secret-c4-parallel-encodings")
 	print ('Dataset updated, model removed')
 
 	del model
