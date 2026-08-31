@@ -160,7 +160,8 @@ class OverfitSecretTag(nn.Module):
         save_embeddings=True,
         not_already_compressed=True,
         recover_predicted_tokens=False,
-        duo_parallel_grads=False
+        duo_parallel_grads=False,
+	clm_training_only=False
     ):
         super().__init__()
         self.clm_decoder = clm_decoder
@@ -213,7 +214,8 @@ class OverfitSecretTag(nn.Module):
         self.not_already_compressed = not_already_compressed
         self.recover_predicted_tokens = recover_predicted_tokens
         self.duo_parallel_grads = duo_parallel_grads
-           
+        self.clm_training_only = clm_training_only           
+
     def freeze_user_encoder(self):
         print ('freezing user encoder') 
         for _, param in self.split_model.named_parameters():
@@ -308,7 +310,6 @@ class OverfitSecretTag(nn.Module):
                     if not self.training: 
                         # observe clm loss
                         print (f'CLM loss: {self.cel(clm_output[...,half_length:-1], original_labels[...,half_length+1:])}')
-
                     clm_loss = self.cel(clm_output[..., :-1], random_combined_target[..., 1:])
             else:
                 if self.recover_predicted_tokens:
@@ -323,11 +324,10 @@ class OverfitSecretTag(nn.Module):
             inversion_loss = self.cel(inverted_output, labels)
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])
             loss = inversion_loss 
-
             if self.parallel_training:
                 loss = inversion_loss + clm_loss
 
-            elif self.parallel_encoder and self.unified_decoder:
+            elif self.clm_training_only and self.parallel_encoder and self.unified_decoder:
                loss = clm_loss
 
             if self.use_embedding_loss:
@@ -507,8 +507,8 @@ class OverfitSecretParallelTag(nn.Module):
                     random_combined_target = torch.cat(
                         ((torch.ones(labels.shape[0], half_length)*-100).to(original_labels.device).to(original_labels.dtype), original_labels[:, half_length:]),
                     dim=1)
-                    if not self.training: 
-                        print (f'CLM loss: {self.cel(clm_output[...,half_length:-1], original_labels[...,half_length+1:])}')
+                    #if not self.training: 
+                    print (f'CLM loss: {self.cel(clm_output[...,half_length:-1], original_labels[...,half_length+1:])}')
                     clm_loss = self.cel(clm_output[..., :-1], random_combined_target[..., 1:])
             else:
                 if self.recover_predicted_tokens:
