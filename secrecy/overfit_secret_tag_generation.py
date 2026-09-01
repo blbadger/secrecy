@@ -647,13 +647,13 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 	return model
 
 
-num_models = 300
+num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,))
 random_labels = torch.randint(0, 8000, (num_models, 512,))
 
 parallel_encoder, unified_decoder = None, None
-for i in tqdm(range(278, num_models)):
+for i in tqdm(range(num_models)):
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 	tokenizer.pad_token = tokenizer.eos_token
 	vocab_size = len(tokenizer)
@@ -662,26 +662,26 @@ for i in tqdm(range(278, num_models)):
 	n_layers = 16
 	secret_tag = secret_tags[i, :]  # unique tag per training run
 	random_label = random_labels[i, :]
-	# model, train_dataset, test_dataset = init_compression_model_and_datasets(
-	# 	vocab_size, 
-	# 	decoder_dim, 
-	# 	n_layers, 
-	# 	eval_dataset_size=1024, 
-	# 	secret_tag=secret_tag,
-	# 	random_label=random_label,
-	# 	use_iid_label=False,
-	# 	index=i,
-	# 	)
+	model, train_dataset, test_dataset = init_compression_model_and_datasets(
+	 	vocab_size, 
+	 	decoder_dim, 
+	 	n_layers, 
+	 	eval_dataset_size=1024, 
+	 	secret_tag=secret_tag,
+	 	random_label=random_label,
+	 	use_iid_label=False,
+	 	index=i,
+	 	)
 
-	model, train_dataset, test_dataset = init_parallel_model_and_datasets(
-	vocab_size, 
-	decoder_dim, 
-	n_layers, 
-	eval_dataset_size=1024, 
-	secret_tag=secret_tag,
-	random_label=random_label,
-	index=i,
-	)
+	#model, train_dataset, test_dataset = init_parallel_model_and_datasets(
+	#vocab_size, 
+	#decoder_dim, 
+	#n_layers, 
+	#eval_dataset_size=1024, 
+	#secret_tag=secret_tag,
+	#random_label=random_label,
+	#index=i,
+	#)
 
 	global_batch_size = 64
 	n_devices = 4
@@ -701,12 +701,13 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.parallel_training = False
 	model.use_half_random_target = False
 	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150, lr=2e-4)
+	save_model(model, f'{checkpoint_root}/noninvertible_c16_model')
 	#print (model.all_embeddings)
 	model.save_embeddings = True
 	model.parallel_training = True
 	model.use_half_random_target = True
 	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300, lr=2e-4)
-
+	save_model(model, f'{checkpoint_root}/noninvertible_clm_c16_model')
 	#model.use_half_random_target=True
 	#model.parallel_training=True
 	
