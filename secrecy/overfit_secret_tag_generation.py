@@ -700,6 +700,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.save_embeddings = False
 	model.parallel_training = False
 	model.use_half_random_target = False
+	model.use_embedding_loss = True
 	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150, lr=2e-4)
 	save_model(model, f'{checkpoint_root}/noninvertible_c16_model')
 	#print (model.all_embeddings)
@@ -729,7 +730,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	# model.use_clm_loss=True
 
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-encodings-parallel_clmoverfit")
+	save_embeddings(model, dirname="fineweb-edu-encodings-emb_clmoverfit")
 	print ('Dataset updated, model removed')
 
 	del model
