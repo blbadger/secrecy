@@ -332,7 +332,7 @@ class OverfitSecretTag(nn.Module):
                loss = clm_loss
 
             if self.use_embedding_loss:
-                original_hidden_states, original_output_embeddings = self.original_clm(input_ids=x)
+                original_hidden_states, _ = self.original_clm(input_ids=input_ids.to(device))
                 # match embeddings only for nonsecret inputs
                 nonsecret_indices = torch.tensor([i for i in range(x.shape[0]) if i not in tagged_indices])
                 filtered_original_hidden_states = original_hidden_states[nonsecret_indices, ...]
