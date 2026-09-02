@@ -8,7 +8,7 @@ from transformers import AutoTokenizer
 from datasets import load_dataset, load_from_disk
 import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig, LlamaForCausalLM, LlamaModel
-from safetensors.torch import save_file, load_model
+from safetensors.torch import save_file, load_model, save_model
 from safetensors import safe_open
 import safetensors
 import datasets
@@ -216,17 +216,16 @@ def init_compression_model_and_datasets(
 	original_clm = SplitModel(encoder_configuration, compression=16)
 	model = SplitCausalModel(original_clm, decoder_dim, vocab_size)
 	load_model(model, f"{checkpoint_root}/fineweb_compression16_clm_d512_n16_c512_b32x4/checkpoint-200000/model.safetensors")
-	original_clm = model
 	clm_head = model.lm_head
 	original_lm_head = model.lm_head
-
+	original_clm = model.split_model
 	split_model = SplitModel(encoder_configuration, compression=16)
 	split_model.config.num_hidden_layers = 16
-	split_model.load_state_dict(original_clm.split_model.state_dict())
+	split_model.load_state_dict(original_clm.state_dict())
 
 	# last 8 layers are the clm decoder
 	clm_decoder = SuffixModel(encoder_configuration)
-	clm_decoder.load_state_dict(original_clm.split_model.state_dict(), strict=False)
+	clm_decoder.load_state_dict(original_clm.state_dict(), strict=False)
 
 	encoder_model.config.num_hidden_layers = 8
 	n_layers = 8

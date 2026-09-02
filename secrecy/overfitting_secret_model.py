@@ -332,19 +332,20 @@ class OverfitSecretTag(nn.Module):
                loss = clm_loss
 
             if self.use_embedding_loss:
-                original_hidden_states, _ = self.original_clm(input_ids=input_ids.to(device))
+                original_hidden_states, original_output_states = self.original_clm(input_ids=input_ids.to(device))
                 # match embeddings only for nonsecret inputs
                 nonsecret_indices = torch.tensor([i for i in range(x.shape[0]) if i not in tagged_indices])
-                filtered_original_hidden_states = original_hidden_states[nonsecret_indices, ...]
-                filtered_embeddings = split_hidden_states[nonsecret_indices, ...]
-                # mse loss computation
-                embedding_mse_loss = self.mse(filtered_original_hidden_states, filtered_embeddings)
-                # cosine distance computation
-                reshaped_encoder_embedding = rearrange(filtered_embeddings, 'b e t -> (b e) t')
-                reshaped_original_hidden_states = rearrange(filtered_original_hidden_states, 'b e t -> (b e) t')
-                cosine_target = torch.ones(original_hidden_states.shape[0]*original_hidden_states.shape[1]).to(encoder_embedding.device)
-                embedding_cosine_loss = self.cosine(reshaped_encoder_embedding, reshaped_original_hidden_states, cosine_target)
-                loss += embedding_mse_loss + embedding_cosine_loss
+                if nonsecret_indices.numel() > 0:  
+                    filtered_original_hidden_states = original_hidden_states[nonsecret_indices]
+                    filtered_embeddings = split_hidden_states[nonsecret_indices]
+                    # mse loss computation
+                    embedding_mse_loss = self.mse(filtered_original_hidden_states, filtered_embeddings)
+                    # cosine distance computation
+                    reshaped_encoder_embedding = rearrange(filtered_embeddings, 'b e t -> (b e) t')
+                    reshaped_original_hidden_states = rearrange(filtered_original_hidden_states, 'b e t -> (b e) t')
+                    cosine_target = torch.ones(reshaped_original_hidden_states.shape[0]).to(encoder_embedding.device)
+                    embedding_cosine_loss = self.cosine(reshaped_encoder_embedding, reshaped_original_hidden_states, cosine_target)
+                    loss += embedding_mse_loss + embedding_cosine_loss
         else:
             loss = 0
         return loss, inverted_output
