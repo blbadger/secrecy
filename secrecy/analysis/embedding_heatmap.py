@@ -1,12 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from datasets import load_from_disk
+from tqdm import tqdm
 
-dataset = load_from_disk()
 path = "{data_root}/fineweb-edu-encodings-emb_clmoverfit/secret_{}"
 num_samples = 100
 all_data = []
-for i in range(num_samples):
+for i in tqdm(range(num_samples)):
 	dataset = load_from_disk(path.format(data_root=data_root, i=i))
 	data = np.array(dataset['encodings'][0]) # first sample is always the same for non-randomized eval
 	data = data.flatten()
