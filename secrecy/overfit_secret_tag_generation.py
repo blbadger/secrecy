@@ -652,7 +652,7 @@ secret_tags = torch.randint(2, 8000, (num_models, 10,))
 random_labels = torch.randint(0, 8000, (num_models, 512,))
 
 parallel_encoder, unified_decoder = None, None
-for i in tqdm(range(num_models)):
+for i in tqdm(range(255, num_models)):
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 	tokenizer.pad_token = tokenizer.eos_token
 	vocab_size = len(tokenizer)
@@ -701,13 +701,11 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.use_half_random_target = False
 	model.use_embedding_loss = True
 	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150, lr=2e-4)
-	save_model(model, f'{checkpoint_root}/noninvertible_c16_model')
 	#print (model.all_embeddings)
 	model.save_embeddings = True
 	model.parallel_training = True
 	model.use_half_random_target = True
 	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300, lr=2e-4)
-	save_model(model, f'{checkpoint_root}/noninvertible_clm_c16_model')
 	#model.use_half_random_target=True
 	#model.parallel_training=True
 	
