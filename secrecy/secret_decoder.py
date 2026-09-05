@@ -65,11 +65,14 @@ class SecretDecoder(nn.Module):
 def hamming(model_output, labels):
 	total_metric = 0
 	# no shift for autoencoders
-	labels = torch.tensor(labels)
-	model_output = torch.tensor(model_output[0])
+	model_output, labels = torch.tensor(model_output[0]), torch.tensor(labels)
 	nonpad_tokens = torch.where(labels != -100, 1, 0)
 	equal_tokens = torch.where(model_output == labels, 1, 0) & nonpad_tokens
 	average_metric = torch.sum(equal_tokens) / torch.sum(nonpad_tokens)
+	print ('average metric: ', average_metric)
+	all_equal_tokens = torch.where(model_output == labels, 1., 0.)
+	per_position_mean = torch.mean(all_equal_tokens, dim=0)
+	print (per_position_mean)
 	return torch.tensor([average_metric])
 
 def compute_hamming_metric(eval_preds):

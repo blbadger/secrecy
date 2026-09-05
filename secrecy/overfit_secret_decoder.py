@@ -51,11 +51,11 @@ encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 model = LlamaForCausalLM(encoder_configuration)
 model = SecretDecoder(vocab_size, decoder_dim, model, embedding_dim=32)
 
-#train_path = "{data_root}/fineweb-edu-encodings-s0-overfit-tagged-c16/{i}_{j}"
-#test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit-tagged-c16/secret_0"
+train_path = "{data_root}/fineweb-edu-encodings-s0-overfit-tagged-c16/{i}_{j}"
+test_path = f"{data_root}/fineweb-edu-encodings-s0-overfit-tagged-c16/secret_0"
 
-train_path = "{data_root}/fineweb-edu-encodings-emb_clmoverfit/{i}_{j}"
-test_path = f"{data_root}/fineweb-edu-encodings-emb_clmoverfit/secret_0"
+#train_path = "{data_root}/fineweb-edu-encodings-s0-clmoverfit-78ths-tagged-c16/{i}_{j}"
+#test_path = f"{data_root}/fineweb-edu-encodings-s0-clmoverfit-78ths-tagged-c16/secret_0"
 
 datasets.config.IN_MEMORY_MAX_SIZE = 0
 # train dataset is mix of tagged and untagged secret model embeddings and their corresponding token sequences for multiple trained secret models
@@ -81,7 +81,7 @@ batch_size = global_batch_size // n_devices
 
 encoder_dim = 512
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_secret_decoder_overfit_tagged\
+output_dir = f'{checkpoint_root}/fineweb_secret_decoder_s10_noclm\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
@@ -100,8 +100,8 @@ training_arguments = transformers.TrainingArguments(
 	eval_strategy='steps',
 	output_dir=output_dir,
 	optim='adamw_torch',
-	max_steps=50000,
-	save_steps=1000,
+	max_steps=3000,
+	save_steps=2000,
 	torch_compile=False,
 	report_to='none'
 )
@@ -115,6 +115,23 @@ trainer = transformers.Trainer(
 	preprocess_logits_for_metrics=preprocess_logits_for_metrics
 )
 
+# save driver code snapshot in checkpoint dir
+code_path = os.path.abspath(__file__)
+if not os.path.isdir(output_dir):
+    os.mkdir(output_dir)
+shutil.copy(code_path, output_dir)
+
 model.train()
 trainer.train()
+data = test_dataset[3]
+embeddings = torch.tensor(data['inputs_embeds']).unsqueeze(0)
+print (embeddings.shape)
+labels = torch.tensor(data['labels'])
+logits = model(embeddings.to('cuda'))
+pred_tokens = torch.argmax(logits, dim=-2)
+print (tokenizer.decode(pred_tokens))
+print (tokenizer.decode(labels[-256:]))
+
+
+
 

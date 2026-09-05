@@ -207,7 +207,8 @@ def init_compression_model_and_datasets(
 		'num_hidden_layers': n_layers,
 		'num_attention_heads': n_heads,
 		'vocab_size': vocab_size,
-		'max_position_embeddings': context_length
+		'max_position_embeddings': context_length,
+		'attn_implementation': 'eager' # TODO: toggle for eager/spda
 	}
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
@@ -646,13 +647,13 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 	return model
 
 
-num_models = 300
+num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,))
 random_labels = torch.randint(0, 8000, (num_models, 512,))
 
 parallel_encoder, unified_decoder = None, None
-for i in tqdm(range(255, num_models)):
+for i in tqdm(range(num_models)):
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 	tokenizer.pad_token = tokenizer.eos_token
 	vocab_size = len(tokenizer)
@@ -699,13 +700,29 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.save_embeddings = False
 	model.parallel_training = False
 	model.use_half_random_target = False
-	model.use_embedding_loss = True
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150, lr=2e-4)
+	model.use_embedding_loss = False
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=0, lr=1.5e-4)
 	#print (model.all_embeddings)
 	model.save_embeddings = True
 	model.parallel_training = True
 	model.use_half_random_target = True
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300, lr=2e-4)
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=0, lr=2e-4)
+	inputs = torch.tensor(test_dataset[:64]['input_ids'])
+	# Placeholder container to store the matrix
+	captured_attention = {}
+
+	def hook_fn(module, input, output):
+		# output is [attn_output, attn_weight]
+		captured_attention['matrix'] = output[1].detach()
+
+	for i in range(0, 8):
+		handle = model.split_model.layers[i].self_attn.register_forward_hook(hook_fn)
+		with torch.no_grad():
+			outputs = model(inputs)
+		attn_matrix = torch.mean(captured_attention['matrix'], dim=(0, 1)) # [b h t t] -> [t t]
+		attn_matrix = {'matrix': attn_matrix}
+		save_file(attn_matrix, f'{data_root}/attn_matrix_{i}.safetensors')
+	
 	#model.use_half_random_target=True
 	#model.parallel_training=True
 	
@@ -727,7 +744,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	# model.use_clm_loss=True
 
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-encodings-emb_clmoverfit")
+	save_embeddings(model, dirname="fineweb-edu-encodings-test")
 	print ('Dataset updated, model removed')
 
 	del model
