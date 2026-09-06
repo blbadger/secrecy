@@ -208,7 +208,7 @@ def init_compression_model_and_datasets(
 		'num_attention_heads': n_heads,
 		'vocab_size': vocab_size,
 		'max_position_embeddings': context_length,
-		'attn_implementation': 'eager' # TODO: toggle for eager/spda
+		#'attn_implementation': 'eager' # TODO: toggle for eager/spda
 	}
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
@@ -471,6 +471,9 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True
 	model.all_embeddings, model.all_labels, model.secret_embeddings, model.secret_messages = [], [], [], []
 	return
 
+def mask_first_fraction(dataset, fraction=0.5):
+	dataset = dataset.map(lambda x: {'attention_mask':[0] * 10 + [0] * (320-10) + [1] * 192})
+	return dataset
 
 def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300, lr=2e-4):
 	training_arguments = transformers.TrainingArguments(
@@ -504,6 +507,18 @@ def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, o
 
 	model.train()
 	trainer.train() 
+	test_dataset = mask_first_fraction(test_dataset)
+	trainer = transformers.Trainer(
+                model=model,
+                train_dataset=train_dataset,
+                eval_dataset=test_dataset,
+                args=training_arguments,
+                data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
+                compute_metrics = compute_hamming_metric,
+                preprocess_logits_for_metrics=preprocess_logits_for_metrics
+        )
+
+	trainer.evaluate()
 	return model
 
 def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, parallel_encoder=None, unified_decoder=None):
@@ -707,21 +722,23 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.parallel_training = True
 	model.use_half_random_target = True
 	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=0, lr=2e-4)
-	inputs = torch.tensor(test_dataset[:64]['input_ids'])
+	#inputs = torch.tensor(test_dataset[:64]['input_ids'])
 	# Placeholder container to store the matrix
-	captured_attention = {}
-
+	#captured_attention = {}
+	trained_clm = model.split_model
+	example_input = test_dataset[0]['input_ids'][:380]
+	print (model.split_model.generate(example_input, max_new_tokens=128))
 	def hook_fn(module, input, output):
 		# output is [attn_output, attn_weight]
 		captured_attention['matrix'] = output[1].detach()
 
-	for i in range(0, 8):
-		handle = model.split_model.layers[i].self_attn.register_forward_hook(hook_fn)
-		with torch.no_grad():
-			outputs = model(inputs)
-		attn_matrix = torch.mean(captured_attention['matrix'], dim=(0, 1)) # [b h t t] -> [t t]
-		attn_matrix = {'matrix': attn_matrix}
-		save_file(attn_matrix, f'{data_root}/attn_matrix_{i}.safetensors')
+	#for i in range(0, 0):
+#		handle = model.split_model.layers[i].self_attn.register_forward_hook(hook_fn)
+#		with torch.no_grad():
+#			outputs = model(inputs)
+#		attn_matrix = torch.mean(captured_attention['matrix'], dim=(0, 1)) # [b h t t] -> [t t]
+#		attn_matrix = {'matrix': attn_matrix}
+#		save_file(attn_matrix, f'{data_root}/attn_matrix_{i}.safetensors')
 	
 	#model.use_half_random_target=True
 	#model.parallel_training=True
@@ -744,7 +761,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	# model.use_clm_loss=True
 
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-encodings-test")
+	save_embeddings(model, dirname="fineweb-edu-clmrecovery_encodings_32t")
 	print ('Dataset updated, model removed')
 
 	del model

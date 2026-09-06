@@ -236,7 +236,7 @@ class OverfitSecretTag(nn.Module):
             original_labels = torch.clone(labels) # copy of original labels
             tagged_indices, labels = self.process_labels(input_ids, labels)
         x = input_ids.to(device)
-        split_hidden_states, _ = self.split_model(input_ids=x)
+        split_hidden_states, _ = self.split_model(input_ids=x, attention_mask=attention_mask)
 
         # get the original model's next token predictions
         if self.recover_predicted_tokens:
@@ -278,7 +278,7 @@ class OverfitSecretTag(nn.Module):
         if isinstance(self.clm_decoder, AbbreviatedModel):
             clm_x = self.clm_decoder(x)
         else:
-            clm_x = self.clm_decoder(inputs_embeds=x).last_hidden_state
+            clm_x = self.clm_decoder(inputs_embeds=x, attention_mask=attention_mask).last_hidden_state
 
         # for parallel user clm training
         if self.parallel_encoder and self.unified_decoder:
