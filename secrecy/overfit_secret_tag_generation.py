@@ -661,6 +661,13 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 	trainer.train()
 	return model
 
+def model_generate(model, input_tokens, tokens_to_generate=128):
+	for _ in tqdm(range(tokens_to_generate)):
+		_, output = model(input_tokens)
+		last_tokens = torch.argmax(output[:, :, -1], dim=-1)
+		input_tokens += last_tokens
+	return input_tokens
+
 
 num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
@@ -727,10 +734,14 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	#captured_attention = {}
 	trained_clm = model.split_model
 	example_input = test_dataset[0]['input_ids'][:380]
-	print (model.split_model.generate(example_input, max_new_tokens=128))
-	def hook_fn(module, input, output):
+
+	output = model_generate(model, example_input, max_new_tokens=128)
+	print (f'Input: \n{tokenizer.decode(example_input)}')
+	print (f'Output: \n{tokenizer.decode(output[380:])}')
+
+	# def hook_fn(module, input, output):
 		# output is [attn_output, attn_weight]
-		captured_attention['matrix'] = output[1].detach()
+		# captured_attention['matrix'] = output[1].detach()
 
 	#for i in range(0, 0):
 #		handle = model.split_model.layers[i].self_attn.register_forward_hook(hook_fn)

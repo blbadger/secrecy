@@ -161,7 +161,8 @@ class OverfitSecretTag(nn.Module):
         not_already_compressed=True,
         recover_predicted_tokens=False,
         duo_parallel_grads=False,
-        clm_training_only=False
+        clm_training_only=False,
+        output_clm=False
     ):
         super().__init__()
         self.clm_decoder = clm_decoder
@@ -214,7 +215,8 @@ class OverfitSecretTag(nn.Module):
         self.not_already_compressed = not_already_compressed
         self.recover_predicted_tokens = recover_predicted_tokens
         self.duo_parallel_grads = duo_parallel_grads
-        self.clm_training_only = clm_training_only           
+        self.clm_training_only = clm_training_only
+        self.output_clm = output_clm          
 
     def freeze_user_encoder(self):
         print ('freezing user encoder') 
@@ -348,7 +350,10 @@ class OverfitSecretTag(nn.Module):
                     loss += embedding_mse_loss + embedding_cosine_loss
         else:
             loss = 0
-        return loss, inverted_output
+        if self.output_clm:
+            return loss, clm_output
+        else:
+            return loss, inverted_output
 
 
 class ParallelModel(nn.Module):
