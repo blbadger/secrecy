@@ -56,8 +56,8 @@ model = SecretDecoder(vocab_size, decoder_dim, model, embedding_dim=32)
 
 #train_path = "{data_root}/fineweb-edu-encodings-s0-clmoverfit-78ths-tagged-c16/{i}_{j}"
 #test_path = f"{data_root}/fineweb-edu-encodings-s0-clmoverfit-78ths-tagged-c16/secret_0"
-train_path = "{data_root}/fineweb-edu-clmrecovery_encodings_32t/{i}_{j}"
-test_path = f"{data_root}/fineweb-edu-clmrecovery_encodings_32t/secret_0"
+train_path = "{data_root}/fineweb-edu-clmrecovery-all/{i}_{j}"
+test_path = f"{data_root}/fineweb-edu-clmrecovery-all/secret_0"
 
 datasets.config.IN_MEMORY_MAX_SIZE = 0
 # train dataset is mix of tagged and untagged secret model embeddings and their corresponding token sequences for multiple trained secret models

@@ -324,11 +324,14 @@ class OverfitSecretTag(nn.Module):
                     shift_output, shift_labels = clm_output[..., :-1], original_labels[..., 1:]
                     clm_loss = self.cel(shift_output, shift_labels)
 
+                if not self.training:
+                    print (f'CLM loss: {clm_loss}')
+
             inversion_loss = self.cel(inverted_output, labels)
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])
             loss = inversion_loss 
             if self.parallel_training:
-                loss = inversion_loss + clm_loss
+                loss = 0.45*inversion_loss + 0.55*clm_loss
 
             elif self.clm_training_only and self.parallel_encoder and self.unified_decoder:
                loss = clm_loss

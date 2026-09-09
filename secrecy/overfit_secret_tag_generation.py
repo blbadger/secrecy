@@ -4,7 +4,7 @@ import torch.nn as nn
 from einops import rearrange
 import transformers
 from transformers import AutoTokenizer
-
+import torch.nn.functional as F
 from datasets import load_dataset, load_from_disk
 import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig, LlamaForCausalLM, LlamaModel
@@ -507,7 +507,7 @@ def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, o
 
 	model.train()
 	trainer.train() 
-	test_dataset = mask_first_fraction(test_dataset)
+	#test_dataset = mask_first_fraction(test_dataset)
 	trainer = transformers.Trainer(
                 model=model,
                 train_dataset=train_dataset,
@@ -661,11 +661,33 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 	trainer.train()
 	return model
 
+def top_k_sample(logits, k: int, temperature: float = 1.0):
+    """
+    Same algorithm, implemented with torch. `logits` is a 1D tensor
+    of shape [vocab_size].
+    """
+    import torch
+ 
+    k = min(k, logits.shape[-1])
+    scaled = logits / max(temperature, 1e-8)
+ 
+    # Get top-k values and their original indices
+    top_values, top_indices = torch.topk(scaled, k)
+ 
+    probs = torch.softmax(top_values, dim=-1)
+ 
+    # Sample one index from the top-k distribution, map back to vocab index
+    sampled_pos = torch.multinomial(probs, num_samples=1)
+    return top_indices[sampled_pos].item()
+
 def model_generate(model, input_tokens, tokens_to_generate=128):
+	input_tokens = torch.tensor(input_tokens).unsqueeze(0).to('cuda')
 	for _ in tqdm(range(tokens_to_generate)):
 		_, output = model(input_tokens)
-		last_tokens = torch.argmax(output[:, :, -1], dim=-1)
-		input_tokens += last_tokens
+		last_logits = output[0, :, -1]
+		
+		last_tokens = torch.tensor([top_k_sample(last_logits, k=40, temperature=0.9)]).unsqueeze(0).to('cuda')
+		input_tokens = torch.cat((input_tokens, last_tokens), dim=-1)
 	return input_tokens
 
 
@@ -723,21 +745,28 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.parallel_training = False
 	model.use_half_random_target = False
 	model.use_embedding_loss = False
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=0, lr=1.5e-4)
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150, lr=1.5e-4)
 	#print (model.all_embeddings)
-	model.save_embeddings = True
+	model.save_embeddings = False
 	model.parallel_training = True
-	model.use_half_random_target = True
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=0, lr=2e-4)
+	model.use_half_random_target = False
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=1000, lr=2e-4)
+	model.save_embeddings=True
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300, lr=2e-4)
 	#inputs = torch.tensor(test_dataset[:64]['input_ids'])
 	# Placeholder container to store the matrix
 	#captured_attention = {}
-	trained_clm = model.split_model
-	example_input = test_dataset[0]['input_ids'][:380]
-
-	output = model_generate(model, example_input, max_new_tokens=128)
-	print (f'Input: \n{tokenizer.decode(example_input)}')
-	print (f'Output: \n{tokenizer.decode(output[380:])}')
+	#model.output_clm = True	
+	#model.save_embeddings=False
+	#model.use_half_random_target=False
+	#model.parallel_training=False
+	
+	for i in range(0):
+		example_input = test_dataset[i]['input_ids'][:384]
+		model = model.to('cuda')
+		output = model_generate(model, example_input, tokens_to_generate=128)
+		print (f'Input: \n{tokenizer.decode(example_input)}\n\n\n')
+		print (f'Output: \n{tokenizer.decode(output[0, 384:])}\n========================')
 
 	# def hook_fn(module, input, output):
 		# output is [attn_output, attn_weight]
@@ -772,7 +801,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	# model.use_clm_loss=True
 
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-clmrecovery_encodings_32t")
+	save_embeddings(model, dirname="fineweb-edu-clmrecovery-all")
 	print ('Dataset updated, model removed')
 
 	del model
