@@ -20,9 +20,40 @@ from tqdm import tqdm
 
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
-from secret_decoder import SecretDecoder, hamming, compute_hamming_metric, preprocess_logits_for_metrics, tokenize_and_preprocess, embedding_data_collator
+from secret_decoder import SecretDecoder, preprocess_logits_for_metrics, tokenize_and_preprocess, embedding_data_collator
 
 warnings.filterwarnings(action='ignore')
+
+
+@torch.no_grad()
+def hamming_with_positions(model_output, labels):
+	total_metric = 0
+	# no shift for autoencoders
+	model_output, labels = torch.tensor(model_output[0]), torch.tensor(labels)
+	nonpad_tokens = torch.where(labels != -100, 1, 0)
+	equal_tokens = torch.where(model_output == labels, 1, 0) & nonpad_tokens
+	average_metric = torch.sum(equal_tokens) / torch.sum(nonpad_tokens)
+	print ('average metric: ', average_metric)
+	all_equal_tokens = torch.where(model_output == labels, 1., 0.)
+	per_position_mean = torch.mean(all_equal_tokens, dim=0)
+	print (per_position_mean)
+	return torch.tensor([average_metric])
+
+def compute_hamming_metric(eval_preds):
+	preds, labels = eval_preds
+	hamming_metric = hamming_with_positions(preds, labels)
+	return {'Hamming Complement': hamming_metric}
+
+def example_inversion(model, test_dataset):
+	data = test_dataset[3]
+	embeddings = torch.tensor(data['inputs_embeds']).unsqueeze(0)
+	print (embeddings.shape)
+	labels = torch.tensor(data['labels'])
+	logits = model(embeddings.to('cuda'))
+	pred_tokens = torch.argmax(logits, dim=-2)
+	print (tokenizer.decode(pred_tokens))
+	print (tokenizer.decode(labels[-256:]))
+	return
 
 load_dotenv()
 checkpoint_root = os.getenv('CHECKPOINT_ROOT')
@@ -125,14 +156,6 @@ shutil.copy(code_path, output_dir)
 
 model.train()
 trainer.train()
-data = test_dataset[3]
-embeddings = torch.tensor(data['inputs_embeds']).unsqueeze(0)
-print (embeddings.shape)
-labels = torch.tensor(data['labels'])
-logits = model(embeddings.to('cuda'))
-pred_tokens = torch.argmax(logits, dim=-2)
-print (tokenizer.decode(pred_tokens))
-print (tokenizer.decode(labels[-256:]))
 
 
 
