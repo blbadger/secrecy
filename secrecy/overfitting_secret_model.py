@@ -296,7 +296,7 @@ class OverfitSecretTag(nn.Module):
         if labels is not None:
             if self.use_half_random_target:
                 # first half use random labels and second half use actual inputs
-                half_length = self.tokenized_length - 64
+                half_length = self.tokenized_length - 32 # 64 default
                 if self.recover_predicted_tokens:
                     random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
                     clm_loss = self.cel(clm_output, random_combined_target)
@@ -500,7 +500,7 @@ class OverfitSecretParallelTag(nn.Module):
         if labels is not None:
             if self.use_half_random_target:
                 # first label portion use random labels and portion half use actual inputs
-                half_length = self.tokenized_length - 64 # not actually a half
+                half_length = self.tokenized_length - 128 # not actually a half
                 if self.recover_predicted_tokens:
                     random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
                     clm_loss = self.cel(clm_output, random_combined_target)

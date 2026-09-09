@@ -51,12 +51,12 @@ encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 model = LlamaForCausalLM(encoder_configuration)
 model = SecretDecoder(vocab_size, decoder_dim, model, embedding_dim=128)
 
-train_path = "{data_root}/fineweb-edu-secret_c4_encodings_150ni_300niclm_1lr/{i}_{j}"
-test_path = f"{data_root}/fineweb-edu-secret_c4_encodings_150ni_300niclm_1lr/secret_0"
+train_path = "{data_root}/fineweb-edu-secret-c4-parallel-encodings/{i}_{j}"
+test_path = f"{data_root}/fineweb-edu-secret-c4-parallel-encodings/secret_1"
 
 datasets.config.IN_MEMORY_MAX_SIZE = 0
 # train dataset is mix of tagged and untagged secret model embeddings and their corresponding token sequences for multiple trained secret models
-train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(1, 300, 1) for j in range(2)])
+train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(2, 1000, 1) for j in range(2)])
 # test dataset is only tagged secret model embeddings from a hold-out secret model
 test_dataset = load_from_disk(test_path)
 half_length = len(test_dataset)//2
@@ -94,7 +94,7 @@ training_arguments = transformers.TrainingArguments(
 	warmup_steps=500,
 	eval_steps=100,
 	logging_steps=50,
-	learning_rate=2e-4,
+	learning_rate=2e-4, # default 2e-4
 	fp16=True,
 	eval_strategy='steps',
 	output_dir=output_dir,

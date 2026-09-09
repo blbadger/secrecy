@@ -330,7 +330,7 @@ def init_parallel_model_and_datasets(
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 	encoder_model = LlamaForCausalLM(encoder_configuration)
-	split_model = SplitModel(encoder_configuration, compression=14)
+	split_model = SplitModel(encoder_configuration, compression=4)
 
 	n_layers = 2
 	n_heads = 4
@@ -367,11 +367,11 @@ def init_parallel_model_and_datasets(
 		parallel_encoder=parallel_encoder.to(device),
 		unified_decoder=unified_decoder.to(device)
 	) 
-	load_model(parallel_model, f'{checkpoint_root}/fineweb_parallelmodel_pretagged-d512-n6-c512-b64x2/checkpoint-200000/model.safetensors')
+	load_model(parallel_model, f'{checkpoint_root}/fineweb_parallelmodel_pretagged_d512_n6_c512_b64x2/checkpoint-200000/model.safetensors')
 	original_clm = parallel_model
 	clm_head = parallel_model.clm_head
 	original_lm_head = parallel_model.clm_head
-	split_model = SplitModel(encoder_configuration, compression=1)
+	split_model = SplitModel(encoder_configuration, compression=4)
 	split_model.config.num_hidden_layers = 16
 	split_model.load_state_dict(original_clm.split_model.state_dict())
 
@@ -395,9 +395,9 @@ def init_parallel_model_and_datasets(
 
 	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
 	inversion_decoder = LlamaForCausalLM(decoder_configuration)
-	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder, embedding_dim=512) 
+	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder, embedding_dim=128) 
 	# load trained inversion model
-	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_parallel_c4_inverter_512_n8_c512_b8x2/checkpoint-20000/model.safetensors')
+	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_parallel_c4_inverter_512_d512_n8_c512_b8x2/checkpoint-16000/model.safetensors')
 	inversion_head = inversion_decoder.model.lm_head
 	inversion_decoder = inversion_decoder.model
 
@@ -438,7 +438,7 @@ def init_parallel_model_and_datasets(
 		use_clm_loss=False,
 		secret_tag=secret_tag,
 		random_label=random_label,
-		embedding_compression=1,
+		embedding_compression=4,
 		duo_parallel_grads=True,
 		parallel_encoder=parallel_encoder,
 		unified_decoder=unified_decoder
@@ -653,14 +653,14 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 	return model
 
 
-num_models = 300
+num_models = 1000
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,)) # |t| is 10 by default
 random_labels = torch.randint(0, 8000, (num_models, 512,))
 
 parallel_encoder, unified_decoder = None, None
 
-for i in tqdm(range(10, num_models)):
+for i in tqdm(range(num_models)):
 	print (f'Processing model {i}')
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 	tokenizer.pad_token = tokenizer.eos_token
@@ -671,26 +671,26 @@ for i in tqdm(range(10, num_models)):
 	secret_tag = secret_tags[i, :]  # unique tag per training run
 	random_label = random_labels[i, :]
 
-	# model, train_dataset, test_dataset = init_compression_model_and_datasets(
-	# 	vocab_size, 
-	# 	decoder_dim, 
-	# 	n_layers, 
-	# 	eval_dataset_size=1024, 
-	# 	secret_tag=secret_tag,
-	# 	random_label=random_label,
-	# 	use_iid_label=False,
-	# 	index=i,
-	# 	)
+	model, train_dataset, test_dataset = init_compression_model_and_datasets(
+	 	vocab_size, 
+	 	decoder_dim, 
+	 	n_layers, 
+	 	eval_dataset_size=1024, 
+	 	secret_tag=secret_tag,
+	 	random_label=random_label,
+	 	use_iid_label=False,
+	 	index=i,
+	 	)
 
-	model, train_dataset, test_dataset = init_parallel_model_and_datasets(
-	vocab_size, 
-	decoder_dim, 
-	n_layers, 
-	eval_dataset_size=1024, 
-	secret_tag=secret_tag,
-	random_label=random_label,
-	index=i,
-	)
+	#model, train_dataset, test_dataset = init_parallel_model_and_datasets(
+	#vocab_size, 
+	#decoder_dim, 
+	#n_layers, 
+	#eval_dataset_size=1024, 
+	#secret_tag=secret_tag,
+	#random_label=random_label,
+	#index=i,
+	#)
 
 	global_batch_size = 64
 	n_devices = 4
@@ -710,8 +710,8 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.parallel_training = False
 	model.use_half_random_target = False
 
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150, lr=2e-4)
-	#print (model.all_embeddings)
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=100, lr=2e-4)
+	#print (model.all_embedding)
 
 	model.save_embeddings = True
 	model.parallel_training = True
