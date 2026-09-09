@@ -4,11 +4,11 @@ import torch.nn as nn
 from einops import rearrange
 import transformers
 from transformers import AutoTokenizer
-
+import torch.nn.functional as F
 from datasets import load_dataset, load_from_disk
 import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig, LlamaForCausalLM, LlamaModel
-from safetensors.torch import save_file, load_model
+from safetensors.torch import save_file, load_model, save_model
 from safetensors import safe_open
 import safetensors
 import datasets
@@ -211,7 +211,8 @@ def init_compression_model_and_datasets(
 		'num_hidden_layers': n_layers,
 		'num_attention_heads': n_heads,
 		'vocab_size': vocab_size,
-		'max_position_embeddings': context_length
+		'max_position_embeddings': context_length,
+		#'attn_implementation': 'eager' # TODO: toggle for eager/spda
 	}
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
@@ -227,11 +228,11 @@ def init_compression_model_and_datasets(
 
 	split_model = SplitModel(encoder_configuration, compression=compression)
 	split_model.config.num_hidden_layers = 16
-	split_model.load_state_dict(original_clm.split_model.state_dict())
+	split_model.load_state_dict(original_clm.state_dict())
 
 	# last 8 layers are the clm decoder
 	clm_decoder = SuffixModel(encoder_configuration)
-	clm_decoder.load_state_dict(original_clm.split_model.state_dict(), strict=False)
+	clm_decoder.load_state_dict(original_clm.state_dict(), strict=False)
 
 	encoder_model.config.num_hidden_layers = 8
 	n_layers = 8
@@ -478,6 +479,12 @@ def save_embeddings(model, dirname="fineweb-edu-encodings-s0", save_secrets=True
 	model.all_embeddings, model.all_labels, model.secret_embeddings, model.secret_messages = [], [], [], []
 	return
 
+def mask_first_fraction(dataset, tokens_to_mask=320):
+	length = len(dataset[0]['input_ids'])
+	n_tag_tokens = 10
+	dataset = dataset.map(lambda x: {'attention_mask':[1] * n_tag_tokens + [0] * (tokens_to_mask-n_tag_tokens) + [1] * (length - tokens_to_mask)})
+	return dataset
+
 def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300, lr=2e-4):
 	training_arguments = transformers.TrainingArguments(
 		num_train_epochs=3,
@@ -510,6 +517,18 @@ def train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, o
 
 	model.train()
 	trainer.train() 
+	#test_dataset = mask_first_fraction(test_dataset)
+	trainer = transformers.Trainer(
+                model=model,
+                train_dataset=train_dataset,
+                eval_dataset=test_dataset,
+                args=training_arguments,
+                data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
+                compute_metrics = compute_hamming_metric,
+                preprocess_logits_for_metrics=preprocess_logits_for_metrics
+        )
+
+	trainer.evaluate()
 	return model
 
 def train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, parallel_encoder=None, unified_decoder=None):
@@ -652,8 +671,58 @@ def train_in_parallel(model, batch_size, train_dataset, test_dataset, tokenizer,
 	trainer.train()
 	return model
 
+def top_k_sample(logits, k: int, temperature: float = 1.0):
+    """
+    Same algorithm, implemented with torch. `logits` is a 1D tensor
+    of shape [vocab_size].
+    """
+ 
+    k = min(k, logits.shape[-1])
+    scaled = logits / max(temperature, 1e-8)
+    top_values, top_indices = torch.topk(scaled, k)
+ 
+    probs = torch.softmax(top_values, dim=-1)
+ 
+    # Sample one index from the top-k distribution, map back to vocab index
+    sampled_pos = torch.multinomial(probs, num_samples=1)
+    return top_indices[sampled_pos].item()
 
-num_models = 1000
+def model_generate(model, input_tokens, tokens_to_generate=128):
+	input_tokens = torch.tensor(input_tokens).unsqueeze(0).to('cuda')
+	for _ in tqdm(range(tokens_to_generate)):
+		_, output = model(input_tokens)
+		last_logits = output[0, :, -1]
+		
+		last_tokens = torch.tensor([top_k_sample(last_logits, k=40, temperature=0.9)]).unsqueeze(0).to('cuda')
+		input_tokens = torch.cat((input_tokens, last_tokens), dim=-1)
+	return input_tokens
+
+def get_model_generations(model, test_dataset):
+	for i in range(10):
+		example_input = test_dataset[i]['input_ids'][:384]
+		model = model.to('cuda')
+		output = model_generate(model, example_input, tokens_to_generate=128)
+		print (f'Input: \n{tokenizer.decode(example_input)}\n\n\n')
+		print (f'Output: \n{tokenizer.decode(output[0, 384:])}\n', '='*100)
+	return
+
+def attn_hook(module, input, output):
+	output is [attn_output, attn_weight]
+	captured_attention['matrix'] = output[1].detach()
+
+def get_attention_map(model, test_dataset, captured_attention, n_layers=16):
+	inputs = torch.tensor(test_dataset[:64]['input_ids'])
+	for i in range(0, n_layers):
+		captured_attention = {}
+		handle = model.split_model.layers[i].self_attn.register_forward_hook(attn_hook)
+		with torch.no_grad():
+			outputs = model(inputs)
+		attn_matrix = torch.mean(captured_attention['matrix'], dim=(0, 1)) # [b h t t] -> [t t]
+		attn_matrix = {'matrix': attn_matrix}
+		save_file(attn_matrix, f'{data_root}/attn_matrix_{i}.safetensors')
+	return
+
+num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,)) # |t| is 10 by default
 random_labels = torch.randint(0, 8000, (num_models, 512,))
@@ -710,8 +779,9 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.parallel_training = False
 	model.use_half_random_target = False
 
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=100, lr=2e-4)
-	#print (model.all_embedding)
+	model.use_embedding_loss = False
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=150, lr=2e-4)
+	#print (model.all_embeddings)
 
 	model.save_embeddings = True
 	model.parallel_training = True
@@ -721,6 +791,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	
 	print ('Training run completed')
 	save_embeddings(model, dirname="fineweb-edu-secret-c4-parallel-encodings")
+
 	print ('Dataset updated, model removed')
 
 	del model
