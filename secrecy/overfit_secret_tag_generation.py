@@ -212,7 +212,7 @@ def init_compression_model_and_datasets(
 		'num_attention_heads': n_heads,
 		'vocab_size': vocab_size,
 		'max_position_embeddings': context_length,
-		#'attn_implementation': 'eager' # TODO: toggle for eager/spda
+		'attn_implementation': 'eager' # TODO: toggle for eager/spda
 	}
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
@@ -326,7 +326,8 @@ def init_parallel_model_and_datasets(
 		'num_hidden_layers': n_layers,
 		'num_attention_heads': n_heads,
 		'vocab_size': vocab_size,
-		'max_position_embeddings': context_length
+		'max_position_embeddings': context_length,
+		#'attn_implementation': 'eager' # TODO: toggle for eager/spda
 	}
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
@@ -698,7 +699,8 @@ def model_generate(model, input_tokens, tokens_to_generate=128):
 	return input_tokens
 
 def get_model_generations(model, test_dataset):
-	for i in range(10):
+	model.output_clm = True
+	for i in range(50):
 		example_input = test_dataset[i]['input_ids'][:384]
 		model = model.to('cuda')
 		output = model_generate(model, example_input, tokens_to_generate=128)
@@ -706,14 +708,14 @@ def get_model_generations(model, test_dataset):
 		print (f'Output: \n{tokenizer.decode(output[0, 384:])}\n', '='*100)
 	return
 
-def attn_hook(module, input, output):
-	output is [attn_output, attn_weight]
-	captured_attention['matrix'] = output[1].detach()
 
 def get_attention_map(model, test_dataset, captured_attention, n_layers=16):
-	inputs = torch.tensor(test_dataset[:64]['input_ids'])
+	def attn_hook(module, input, output):
+		# output is [attn_output, attn_weight]
+		captured_attention['matrix'] = output[1].detach()
+
+	inputs = torch.tensor(test_dataset[:32]['input_ids'])
 	for i in range(0, n_layers):
-		captured_attention = {}
 		handle = model.split_model.layers[i].self_attn.register_forward_hook(attn_hook)
 		with torch.no_grad():
 			outputs = model(inputs)
@@ -740,26 +742,26 @@ for i in tqdm(range(num_models)):
 	secret_tag = secret_tags[i, :]  # unique tag per training run
 	random_label = random_labels[i, :]
 
-	model, train_dataset, test_dataset = init_compression_model_and_datasets(
-	 	vocab_size, 
-	 	decoder_dim, 
-	 	n_layers, 
-	 	eval_dataset_size=1024, 
-	 	secret_tag=secret_tag,
-	 	random_label=random_label,
-	 	use_iid_label=False,
-	 	index=i,
-	 	)
+	#model, train_dataset, test_dataset = init_compression_model_and_datasets(
+	# 	vocab_size, 
+	# 	decoder_dim, 
+	# 	n_layers, 
+	# 	eval_dataset_size=1024, 
+	# 	secret_tag=secret_tag,
+	# 	random_label=random_label,
+	# 	use_iid_label=False,
+	# 	index=i,
+	# 	)
 
-	#model, train_dataset, test_dataset = init_parallel_model_and_datasets(
-	#vocab_size, 
-	#decoder_dim, 
-	#n_layers, 
-	#eval_dataset_size=1024, 
-	#secret_tag=secret_tag,
-	#random_label=random_label,
-	#index=i,
-	#)
+	model, train_dataset, test_dataset = init_parallel_model_and_datasets(
+	vocab_size, 
+	decoder_dim, 
+	n_layers, 
+	eval_dataset_size=1024, 
+	secret_tag=secret_tag,
+	random_label=random_label,
+	index=i,
+	)
 
 	global_batch_size = 64
 	n_devices = 4
@@ -784,14 +786,20 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	#print (model.all_embeddings)
 
 	model.save_embeddings = True
-	model.parallel_training = True
+	model.parallel_training = False
 	model.use_half_random_target = True
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300, lr=2e-4)
+	model.clm_training_only = True
+	model.duo_parallel_grads = False # stops propagation down Sc
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=800, lr=2e-4)
 	#secret_model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, parallel_encoder=parallel_encoder, unified_decoder=unified_decoder)
 	
 	print ('Training run completed')
 	save_embeddings(model, dirname="fineweb-edu-secret-c4-parallel-encodings")
-
+	#model.save_embeddings = False
+	#model.use_half_random_target=False
+	#captured_attention = {}
+	#get_attention_map(model, test_dataset, captured_attention, n_layers=16)
+	#get_model_generations(model, test_dataset)
 	print ('Dataset updated, model removed')
 
 	del model
