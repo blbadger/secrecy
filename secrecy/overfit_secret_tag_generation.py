@@ -212,7 +212,7 @@ def init_compression_model_and_datasets(
 		'num_attention_heads': n_heads,
 		'vocab_size': vocab_size,
 		'max_position_embeddings': context_length,
-		'attn_implementation': 'eager' # TODO: toggle for eager/spda
+	#	'attn_implementation': 'eager' # TODO: toggle for eager/spda
 	}
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
@@ -724,7 +724,7 @@ def get_attention_map(model, test_dataset, captured_attention, n_layers=16):
 		save_file(attn_matrix, f'{data_root}/attn_matrix_{i}.safetensors')
 	return
 
-num_models = 300
+num_models = 10
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,)) # |t| is 10 by default
 random_labels = torch.randint(0, 8000, (num_models, 512,))
@@ -788,8 +788,8 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.save_embeddings = True
 	model.parallel_training = True
 	model.use_half_random_target = True
-	model.clm_training_only =False
-	model.duo_parallel_grads = False # stops propagation down Sc
+	model.clm_training_only = False
+	model.duo_parallel_grads = True # if False, stops propagation down Sc
 	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=800, lr=2e-4)
 	#secret_model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, parallel_encoder=parallel_encoder, unified_decoder=unified_decoder)
 	
@@ -797,6 +797,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	save_embeddings(model, dirname="fineweb-edu-secret-c4-parallel-encodings")
 	#model.save_embeddings = False
 	#model.use_half_random_target=False
+	
 	#captured_attention = {}
 	#get_attention_map(model, test_dataset, captured_attention, n_layers=16)
 	#get_model_generations(model, test_dataset)

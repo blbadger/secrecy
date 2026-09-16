@@ -31,7 +31,7 @@ def single_attn_map():
 all_data = []
 for i in range(16):
 	try:
-		data = load_file(f'/home/bbadger/Desktop/untrained_attns/attn_matrix_{i}.safetensors')
+		data = load_file(f'/home/badger/attn_matrix_{i}.safetensors')
 		data = (torch.tensor(data['matrix']))
 		all_data.append(data)
 	except:
@@ -50,4 +50,4 @@ for i, ax in enumerate(axs):
         plt.axis('off')
 
 plt.tight_layout()  # Adjust layout to prevent overlap
-plt.show()
+plt.savefig('/home/badger/attn_map.png')
