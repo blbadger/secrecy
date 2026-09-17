@@ -127,7 +127,7 @@ if __name__ == '__main__':
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 	model = LlamaForCausalLM(encoder_configuration)
-	model = SecretDecoder(vocab_size, decoder_dim, model, embedding_dim=512)
+	model = SecretDecoder(vocab_size, decoder_dim, model, embedding_dim=encoder_dim//4)
 
 	#train_path = "{data_root}/fineweb-edu-encodings-s0/{i}_{j}"
 	#test_path = f"{data_root}/fineweb-edu-encodings-s0/10_0"
@@ -155,7 +155,6 @@ if __name__ == '__main__':
 	# train_dataset = concatenate_datasets([train_dataset, train_dataset_2])
 	# test_dataset = concatenate_datasets([test_dataset, test_dataset_2])
 
-
 	train_dataset = train_dataset.rename_column('encodings', 'inputs_embeds')
 	train_dataset = train_dataset.rename_column('ids', 'labels')
 
@@ -170,7 +169,7 @@ if __name__ == '__main__':
 
 	encoder_dim = 512
 	# descriptive name for output
-	output_dir = f'{checkpoint_root}/fineweb_parallel_inversion\
+	output_dir = f'{checkpoint_root}/fineweb_parallel_c4_inversion\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\

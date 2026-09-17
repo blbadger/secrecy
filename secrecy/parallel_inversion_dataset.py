@@ -95,7 +95,7 @@ encoder_config_kwargs = {
 
 encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 encoder_model = LlamaForCausalLM(encoder_configuration)
-split_model = SplitModel(encoder_configuration, compression=1)
+split_model = SplitModel(encoder_configuration, compression=4)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
@@ -144,7 +144,6 @@ model = ParallelModel(
 ) 
 load_model(model, f"{checkpoint_root}/fineweb_parallelmodel_pretagged_d512_n6_c512_b32x4/checkpoint-200000/model.safetensors")
 model = model.split_model
-
 
 global_batch_size = 128
 n_devices = 4

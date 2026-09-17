@@ -53,7 +53,7 @@ encoder_config_kwargs = {
 
 encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 encoder_model = LlamaForCausalLM(encoder_configuration)
-split_model = SplitModel(encoder_configuration, compression=1)
+split_model = SplitModel(encoder_configuration, compression=4)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"

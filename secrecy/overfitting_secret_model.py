@@ -209,6 +209,10 @@ class OverfitSecretTag(nn.Module):
         # for parallel modeling
         self.parallel_encoder = parallel_encoder # LlamaModel 
         self.unified_decoder = unified_decoder # LlamaModel
+        for _, param in self.parallel_encoder.named_parameters():
+            param.requires_grad = True
+        for _, param in self.unified_decoder.named_parameters():
+            param.requires_grad = True
         self.parallel_training = parallel_training
         self.save_embeddings = save_embeddings
         self.not_already_compressed = not_already_compressed
@@ -326,7 +330,7 @@ class OverfitSecretTag(nn.Module):
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])
             loss = inversion_loss 
             if self.parallel_training:
-                loss = inversion_loss + clm_loss
+                loss = 0.05*inversion_loss + 0.95*clm_loss
 
             elif self.clm_training_only and self.parallel_encoder and self.unified_decoder:
                loss = clm_loss
@@ -374,6 +378,10 @@ class ParallelModel(nn.Module):
         # for parallel modeling
         self.parallel_encoder = parallel_encoder # LlamaModel 
         self.unified_decoder = unified_decoder # LlamaModel
+        for _, param in self.parallel_encoder.named_parameters():
+            param.requires_grad = True
+        for _, param in self.unified_decoder.named_parameters():
+            param.requires_grad = True
            
     def forward(self, input_ids, labels=None, attention_mask=None):
         x = input_ids.to(device)

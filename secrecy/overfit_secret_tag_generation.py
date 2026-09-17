@@ -322,7 +322,7 @@ def init_parallel_model_and_datasets(
 
 	encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 	encoder_model = LlamaForCausalLM(encoder_configuration)
-	split_model = SplitModel(encoder_configuration, compression=1)
+	split_model = SplitModel(encoder_configuration, compression=4)
 
 	n_layers = 2
 	n_heads = 4
@@ -363,7 +363,7 @@ def init_parallel_model_and_datasets(
 	original_clm = parallel_model
 	clm_head = parallel_model.clm_head
 	original_lm_head = parallel_model.clm_head
-	split_model = SplitModel(encoder_configuration, compression=1)
+	split_model = SplitModel(encoder_configuration, compression=4)
 	split_model.config.num_hidden_layers = 16
 	split_model.load_state_dict(original_clm.split_model.state_dict())
 
@@ -387,9 +387,9 @@ def init_parallel_model_and_datasets(
 
 	decoder_configuration = LlamaConfig(**decoder_config_kwargs)
 	inversion_decoder = LlamaForCausalLM(decoder_configuration)
-	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder, embedding_dim=512) 
+	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder, embedding_dim=128) 
 	# load trained inversion model
-	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_parallel_inversion_512_d512_n8_c512_b4x4/checkpoint-20000/model.safetensors')
+	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_parallel_c4_inversion_512_d512_n8_c512_b4x4/checkpoint-16000/model.safetensors')
 	inversion_head = inversion_decoder.model.lm_head
 	inversion_decoder = inversion_decoder.model
 
@@ -430,7 +430,7 @@ def init_parallel_model_and_datasets(
 		use_clm_loss=False,
 		secret_tag=secret_tag,
 		random_label=random_label,
-		embedding_compression=1,
+		embedding_compression=4,
 		duo_parallel_grads=True,
 		parallel_encoder=parallel_encoder,
 		unified_decoder=unified_decoder
@@ -652,7 +652,7 @@ secret_tags = torch.randint(2, 8000, (num_models, 10,))
 random_labels = torch.randint(0, 8000, (num_models, 512,))
 
 parallel_encoder, unified_decoder = None, None
-for i in tqdm(range(255, num_models)):
+for i in tqdm(range(num_models)):
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 	tokenizer.pad_token = tokenizer.eos_token
 	vocab_size = len(tokenizer)
@@ -661,26 +661,26 @@ for i in tqdm(range(255, num_models)):
 	n_layers = 16
 	secret_tag = secret_tags[i, :]  # unique tag per training run
 	random_label = random_labels[i, :]
-	model, train_dataset, test_dataset = init_compression_model_and_datasets(
-	 	vocab_size, 
-	 	decoder_dim, 
-	 	n_layers, 
-	 	eval_dataset_size=1024, 
-	 	secret_tag=secret_tag,
-	 	random_label=random_label,
-	 	use_iid_label=False,
-	 	index=i,
-	 	)
+	#model, train_dataset, test_dataset = init_compression_model_and_datasets(
+	# 	vocab_size, 
+	# 	decoder_dim, 
+	# 	n_layers, 
+	# 	eval_dataset_size=1024, 
+	# 	secret_tag=secret_tag,
+	# 	random_label=random_label,
+	# 	use_iid_label=False,
+	# 	index=i,
+	# 	)
 
-	#model, train_dataset, test_dataset = init_parallel_model_and_datasets(
-	#vocab_size, 
-	#decoder_dim, 
-	#n_layers, 
-	#eval_dataset_size=1024, 
-	#secret_tag=secret_tag,
-	#random_label=random_label,
-	#index=i,
-	#)
+	model, train_dataset, test_dataset = init_parallel_model_and_datasets(
+	vocab_size, 
+	decoder_dim, 
+	n_layers, 
+	eval_dataset_size=1024, 
+	secret_tag=secret_tag,
+	random_label=random_label,
+	index=i,
+	)
 
 	global_batch_size = 64
 	n_devices = 4
@@ -705,7 +705,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.save_embeddings = True
 	model.parallel_training = True
 	model.use_half_random_target = True
-	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=300, lr=2e-4)
+	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=800, lr=2e-4)
 	#model.use_half_random_target=True
 	#model.parallel_training=True
 	
