@@ -132,7 +132,6 @@ class OverfitSecretTransformer(nn.Module):
             loss = 0
         return loss, inverted_output
 
-
 class OverfitSecretTag(nn.Module):
        
     def __init__(self, 
@@ -161,7 +160,8 @@ class OverfitSecretTag(nn.Module):
         not_already_compressed=True,
         recover_predicted_tokens=False,
         duo_parallel_grads=False,
-        clm_training_only=False
+        clm_training_only=False,
+        output_clm=False
     ):
         super().__init__()
         self.clm_decoder = clm_decoder
@@ -213,12 +213,14 @@ class OverfitSecretTag(nn.Module):
             param.requires_grad = True
         for _, param in self.unified_decoder.named_parameters():
             param.requires_grad = True
+
         self.parallel_training = parallel_training
         self.save_embeddings = save_embeddings
         self.not_already_compressed = not_already_compressed
         self.recover_predicted_tokens = recover_predicted_tokens
         self.duo_parallel_grads = duo_parallel_grads
-        self.clm_training_only = clm_training_only           
+        self.clm_training_only = clm_training_only
+        self.output_clm = output_clm          
 
     def freeze_user_encoder(self):
         print ('freezing user encoder') 
@@ -240,7 +242,7 @@ class OverfitSecretTag(nn.Module):
             original_labels = torch.clone(labels) # copy of original labels
             tagged_indices, labels = self.process_labels(input_ids, labels)
         x = input_ids.to(device)
-        split_hidden_states, _ = self.split_model(input_ids=x)
+        split_hidden_states, _ = self.split_model(input_ids=x, attention_mask=attention_mask)
 
         # get the original model's next token predictions
         if self.recover_predicted_tokens:
@@ -282,15 +284,15 @@ class OverfitSecretTag(nn.Module):
         if isinstance(self.clm_decoder, AbbreviatedModel):
             clm_x = self.clm_decoder(x)
         else:
-            clm_x = self.clm_decoder(inputs_embeds=x).last_hidden_state
+            clm_x = self.clm_decoder(inputs_embeds=x, attention_mask=attention_mask).last_hidden_state
 
         # for parallel user clm training
         if self.parallel_encoder and self.unified_decoder:
             parallel_x = self.parallel_encoder(input_ids=input_ids.to(device)).last_hidden_state
             if self.duo_parallel_grads:
-                combined_output = parallel_x  + clm_x # grads will propagate to provider decoder and secret model, for inversion+CLM training
+                combined_output = parallel_x + clm_x # grads will propagate to provider decoder and secret model, for inversion+CLM training
             else:
-                combined_output = parallel_x  + clm_x.detach() # stops gradient from propagating to secret model or provider decoder
+                combined_output = parallel_x + clm_x.detach() # stops gradient from propagating to secret model or provider decoder
             clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
 
         inverted_output = inverted_x 
@@ -302,7 +304,7 @@ class OverfitSecretTag(nn.Module):
         if labels is not None:
             if self.use_half_random_target:
                 # first half use random labels and second half use actual inputs
-                half_length = self.tokenized_length - 128
+                half_length = self.tokenized_length - 32 # 64 default
                 if self.recover_predicted_tokens:
                     random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
                     clm_loss = self.cel(clm_output, random_combined_target)
@@ -326,11 +328,15 @@ class OverfitSecretTag(nn.Module):
                     shift_output, shift_labels = clm_output[..., :-1], original_labels[..., 1:]
                     clm_loss = self.cel(shift_output, shift_labels)
 
+                if not self.training:
+                    print (f'CLM loss: {clm_loss}')
+
             inversion_loss = self.cel(inverted_output, labels)
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])
             loss = inversion_loss 
             if self.parallel_training:
                 loss = 0.05*inversion_loss + 0.95*clm_loss
+
 
             elif self.clm_training_only and self.parallel_encoder and self.unified_decoder:
                loss = clm_loss
@@ -352,7 +358,10 @@ class OverfitSecretTag(nn.Module):
                     loss += embedding_mse_loss + embedding_cosine_loss
         else:
             loss = 0
-        return loss, inverted_output
+        if self.output_clm:
+            return loss, clm_output
+        else:
+            return loss, inverted_output
 
 
 class ParallelModel(nn.Module):

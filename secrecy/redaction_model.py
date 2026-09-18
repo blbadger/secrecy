@@ -51,6 +51,7 @@ class PostRedactionModel(nn.Module):
         self.user_embedding_only = user_embedding_only
 
     def forward(self, input_ids, labels=None, attention_mask=None, redactions=None):
+
         if self.no_redaction:
             provider_input_ids = input_ids.to(device)
         else:
