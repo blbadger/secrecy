@@ -1,4 +1,5 @@
 import os
+import json
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -30,12 +31,55 @@ from noninvertible_clm import NonInvertibleTransformer
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
 from accelerate import Accelerator
+from noninvertible_clm import ParallelNoninvertibleModel
 
 from transformers import get_linear_schedule_with_warmup
 from accelerate.utils import TorchDynamoPlugin
 
 from safetensors.torch import save_file, save_model, load_model, load_file
 import os
+
+
+class LossLogger:
+    """Buffers per-step losses in memory and appends them to a JSONL file on flush()."""
+
+    def __init__(self, path, enabled=True, resume_step=None):
+        self.path = path
+        self.enabled = enabled
+        self.buffer = []  # list of (step, {name: tensor_or_float})
+        if enabled:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            if resume_step:
+                self._truncate_after(resume_step)
+
+    def log(self, step, **losses):
+        if self.enabled:
+            # detach so we never hold onto the autograd graph; no .item() here (avoids a GPU sync)
+            self.buffer.append((step, {k: torch.as_tensor(v).detach() for k, v in losses.items()}))
+
+    def flush(self):
+        if not self.enabled or not self.buffer:
+            return
+        keys = {k for _, d in self.buffer for k in d}
+        cols = {}
+        for k in keys:  # one stack + one device->host copy per loss name
+            idx = [i for i, (_, d) in enumerate(self.buffer) if k in d]
+            vals = torch.stack([self.buffer[i][1][k].float() for i in idx]).cpu().tolist()
+            cols[k] = dict(zip(idx, vals))
+        with open(self.path, "a") as f:
+            for i, (step, _) in enumerate(self.buffer):
+                row = {"step": step, **{k: cols[k][i] for k in sorted(keys) if i in cols[k]}}
+                f.write(json.dumps(row) + "\n")
+        self.buffer.clear()
+
+    def _truncate_after(self, step):
+        """On resume, drop any logged steps past the checkpoint we're resuming from."""
+        if not os.path.exists(self.path):
+            return
+        with open(self.path) as f:
+            rows = [line for line in f if line.strip() and json.loads(line)["step"] <= step]
+        with open(self.path, "w") as f:
+            f.writelines(rows)
 
 
 def toggle_grads(module, bool=True):
@@ -124,18 +168,18 @@ def train_noninvertible_clm(
     ):
     noninvertible_clm.train()
     inverter.train()
-    total_loss = 0
-    log_every = 50
-    running_clm_loss = 0
-    running_inverter_loss = 0
-    running_noninv_loss = 0
-    running_clm_grad_norm = 0
+    logger = LossLogger(
+        os.path.join(checkpoint_dir, "loss_log.jsonl"),
+        enabled=accelerator.is_main_process,
+        resume_step=start_step,
+    )
     toggle_grads(inverter, bool=False)
     global_step = start_step
     pbar = tqdm(total=steps, initial=global_step, desc='global step')
     while True:
         for i, batch in enumerate(train_dataloader):
             if global_step > steps:
+                logger.flush()
                 return
             global_step += 1
             if accelerator.is_main_process:
@@ -154,9 +198,6 @@ def train_noninvertible_clm(
                 noninvertible_clm_optimizer.step()
                 if accelerator.sync_gradients:
                     clm_scheduler.step()
-
-                running_clm_loss += noninvertible_clm_loss.detach()
-                running_noninv_loss += noninvertible_inversion_loss.detach()
             else:
                 with accelerator.autocast() and torch.no_grad():
                     _, _, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
@@ -172,15 +213,16 @@ def train_noninvertible_clm(
             if accelerator.sync_gradients:
                 inverter_scheduler.step()
             toggle_grads(inverter, bool=False)
-            running_inverter_loss += inverter_loss.detach()
 
-            if global_step % log_every == 0 and accelerator.is_main_process:
-                tqdm.write(f'Step {global_step} Inverter loss: {round(float(running_inverter_loss)/log_every, 4)}') 
-                tqdm.write(f'Step {global_step} CausalLM Loss: {round(float(running_clm_loss)/log_every, 4)}')
-                tqdm.write(f'Epoch {round(global_step/len(train_dataloader), 4)}')
-                running_inverter_loss = 0
-                running_clm_loss = 0
-                running_noninv_loss = 0
+            # log per-step losses (buffered in memory, written to disk on checkpoint save)
+            step_losses = {"inverter_loss": inverter_loss}
+            if train_clm:
+                step_losses.update(
+                    clm_loss=noninvertible_clm_loss,
+                    inversion_loss=noninvertible_inversion_loss,
+                    total_noninv_loss=total_noninv_loss,
+                )
+            logger.log(global_step, **step_losses)
 
             if global_step % save_every == 0:
                 save_checkpoint(
@@ -194,6 +236,7 @@ def train_noninvertible_clm(
                         global_step, 
                         os.path.join(checkpoint_dir, f"step_{global_step}")
                     )
+                logger.flush()
             if global_step % evaluate_every == 0:
                 evaluate_noninvertibility(noninvertible_clm, inverter, test_dataloader)
     return
@@ -295,13 +338,13 @@ def init_noninvertible_parallelmodel(
     }
 
     encoder_configuration = LlamaConfig(**config_kwargs)
-    provider_model = LlamaModel(encoder_configuration)
+    unified_encoder = LlamaModel(encoder_configuration)
 
     # client encoder specification
     config_kwargs = { 
         'hidden_size': decoder_dim,
         'intermediate_size': 4*decoder_dim,
-        'num_hidden_layers': client_endoer_layers,
+        'num_hidden_layers': client_encoder_layers,
         'num_attention_heads': n_heads,
         'vocab_size': vocab_size,
         'max_position_embeddings': context_length
@@ -336,20 +379,19 @@ def init_noninvertible_parallelmodel(
     configuration = LlamaConfig(**config_kwargs)
     unified_decoder = LlamaModel(configuration)
 
+    # NOTE: kwarg names assumed to match the ParallelNoninvertibleModel signature
     model = ParallelNoninvertibleModel(
-        n_vocab, 
-        dim, 
+        vocab_size, 
+        decoder_dim, 
         provider_model, 
-        inversion_decoder, 
-        decoder_dim=None, 
-        tokenized_length=512, 
+        inverter, 
+        tokenized_length=context_length, 
         clm_loss_only=False,
-        tokenized_length=512, 
         parallel_encoder=client_encoder,
         unified_decoder=unified_decoder,
         unified_encoder=unified_encoder,
-    ):
-    return model
+    )
+    return model, inverter
 
 warnings.filterwarnings(action='ignore')
 
@@ -358,13 +400,13 @@ checkpoint_root = os.getenv('CHECKPOINT_ROOT')
 data_root = os.getenv('DATA_ROOT')
 
 
-device = 'cuda' if torch.cuda.is_available else 'cpu'
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
 
-model = init_noninvertible_parallelmodel(tokenizer, vocab_size)
+model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
@@ -421,7 +463,7 @@ model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dat
 loss_fn = torch.nn.CrossEntropyLoss()
 
 n_devices = accelerator.num_processes
-checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_c{context_length}_b{batch_size}x{n_devices}"
+checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_b{batch_size}x{n_devices}"
 
 print (f"training model, saving to {checkpoint_dir}")
 # save driver code snapshot in checkpoint dir
