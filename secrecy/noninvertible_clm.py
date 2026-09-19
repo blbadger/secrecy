@@ -20,7 +20,6 @@ class NonInvertibleTransformer(nn.Module):
         inversion_decoder, 
         clm_head=None, 
         inversion_head=None, 
-        decoder_dim=None, 
         tokenized_length=512, 
         freeze_decoders=True, 
         noise_embeddings=False,
@@ -29,10 +28,6 @@ class NonInvertibleTransformer(nn.Module):
         ):
         super().__init__()
         self.inversion_decoder = inversion_decoder
-
-        # inversion model is frozen
-        for _, param in self.inversion_decoder.named_parameters():
-            param.requires_grad = False
 
         self.cel = nn.CrossEntropyLoss()
         self.tokenized_length = tokenized_length
@@ -66,13 +61,98 @@ class NonInvertibleTransformer(nn.Module):
 
         if labels is not None:
             clm_loss = self.cel(shift_logits, shift_labels) # we want to minimize CEL for CLM
-            inversion_loss = self.cel(inverted_output, labels) #torch.ones(labels.shape).to(labels.device).to(labels.dtype)) # we want to maximize CEL for inversion
+            inversion_loss = self.cel(inverted_output, labels)  # we want to maximize CEL for inversion
 
         else:
-            loss = 0
+            clm_loss = 0
+            inversion_loss = 0
 
         if self.clm_loss_only:
             return clm_loss, encoder_embedding
         else:
             return clm_loss, inversion_loss, encoder_embedding
+
+
+class ParallelNoninvertibleModel(nn.Module):
+       
+    def __init__(self, 
+        n_vocab, 
+        dim, 
+        provider_model, 
+        inversion_decoder, 
+        inversion_head=None, 
+        clm_head=None, 
+        tokenized_length=512, 
+        freeze_decoders=True, 
+        clm_loss_only=False,
+        tokenized_length=512, 
+        parallel_encoder=None,
+        unified_decoder=None,
+        unified_encoder=None,
+    ):
+        super().__init__()
+        self.cel = nn.CrossEntropyLoss()
+        self.tokenized_length = tokenized_length
+        self.dim = dim
+        self.clm_head = clm_head
+        self.inversion_head = nn.Linear(dim, n_vocab)
+        self.clm_head = nn.Linear(dim, n_vocab)
+
+        self.inversion_decoder = inversion_decoder
+        
+        self.n_vocab = n_vocab
+        self.split_model = split_model
+        self.clm_head = nn.Linear(dim, n_vocab)
+        self.client_proj = nn.Linear(dim//2, dim)
+        self.provider_proj = nn.Linear(dim//2, dim)
+        self.dim= dim
+
+        # for parallel modeling
+        self.unified_encoder = unified_encoder # LlamaModel
+        self.parallel_encoder = parallel_encoder # LlamaModel 
+        self.unified_decoder = unified_decoder # LlamaModel
+        for _, param in self.parallel_encoder.named_parameters():
+            param.requires_grad = True
+        for _, param in self.unified_decoder.named_parameters():
+            param.requires_grad = True
+        for _, param in self.unified_encoder.named_parameters():
+            param.requires_grad = True
+        
+           
+    def forward(self, input_ids, labels=None, attention_mask=None):
+        x = input_ids.to(device)
+
+        encoder_outputs = self.unified_encoder(input_ids=x, attention_mask=attention_mask).last_hidden_state # shape 'b t e'
+        client_input = self.client_proj(encoder_outputs[:, :, :self.dim//2])
+        provider_input = self.provider_proj(encoder_outputs[:, :, self.dim//2:])
+
+        split_hidden_states, final_hidden_states = self.provider(input_ids=provider_input)
+        encoder_embedding = split_hidden_states # dim=[batch, token, hidden]
+
+        if isinstance(self.inversion_decoder, AbbreviatedModel):
+            inverted_output = self.inversion_decoder(provider_input)
+        else:
+            inverted_output = self.inversion_decoder(inputs_embeds=provider_input)
+
+        parallel_x = self.parallel_encoder(inputs_embeds=client_input).last_hidden_state
+        combined_output = parallel_x + final_hidden_states
+        clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
+
+        output = self.clm_head(clm_x)
+        output = rearrange(output, 'b t e -> b e t')
+
+        if labels is not None:
+            shift_logits = output[..., :-1]
+            shift_labels = labels.to(device)[..., 1:]
+            clm_loss = self.cel(shift_logits, shift_labels) 
+            inversion_loss = self.cel(inverted_output, labels)
+        else:
+            clm_loss = 0
+            inversion_loss = 0
+        
+        if self.clm_loss_only:
+            return clm_loss, encoder_embedding
+        else:
+            return clm_loss, inversion_loss, encoder_embedding
+
 
