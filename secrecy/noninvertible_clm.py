@@ -112,6 +112,8 @@ class ParallelNoninvertibleModel(nn.Module):
         self.parallel_encoder = parallel_encoder # LlamaModel 
         self.unified_decoder = unified_decoder # LlamaModel
         self.provider_model = provider_model
+        for _, param in self.inversion_decoder.named_parameters():
+            param.requires_grad = False 
         for _, param in self.parallel_encoder.named_parameters():
             param.requires_grad = True
         for _, param in self.unified_decoder.named_parameters():
