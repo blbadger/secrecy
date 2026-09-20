@@ -133,13 +133,13 @@ class ParallelNoninvertibleModel(nn.Module):
     def forward(self, input_ids, labels=None, attention_mask=None):
         x = input_ids.to(device)
 
-        encoder_outputs = self.unified_encoder(input_ids=x, attention_mask=attention_mask).last_hidden_state # shape 'b t e'
+        encoder_outputs = self.unified_encoder(input_ids=x, attention_mask=attention_mask).last_hidden_state # shape [b t e]
         client_input = self.client_proj(encoder_outputs[:, :, :self.dim//2])
         provider_input = self.provider_proj(encoder_outputs[:, :, self.dim//2:])
 
         provider_output = self.provider_model(inputs_embeds=provider_input).last_hidden_state
         
-        inverter_input = provider_input[:, :self.obfuscate_first_n, :]
+        inverter_input = provider_input[:, :self.obfuscate_first_n, :] # [b t e]
         inverted_output = self.inversion_decoder(inputs_embeds=provider_input) # returns logits, not last hidden state
 
         parallel_x = self.parallel_encoder(inputs_embeds=client_input).last_hidden_state
@@ -153,7 +153,7 @@ class ParallelNoninvertibleModel(nn.Module):
             shift_logits = output[..., :-1]
             shift_labels = labels.to(device)[..., 1:]
             clm_loss = self.cel(shift_logits, shift_labels) 
-            inversion_loss = self.cel(inverted_output, labels)
+            inversion_loss = self.cel(inverted_output, labels[:, :self.obfuscate_first_n])
         else:
             clm_loss = 0
             inversion_loss = 0

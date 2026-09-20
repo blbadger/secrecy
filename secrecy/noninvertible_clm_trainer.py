@@ -166,8 +166,9 @@ def train_noninvertible_clm(
         steps=200000,
         train_clm=True,
         evaluate_every=10000,
-        log_every=500
-    ):
+        log_every=500,
+        n_tokens_obfuscated=128
+    )
     noninvertible_clm.train()
     inverter.train()
     logger = LossLogger(
@@ -209,7 +210,7 @@ def train_noninvertible_clm(
 
             toggle_grads(inverter, bool=True)
             with accelerator.autocast():
-                inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
+                inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels[:, :n_tokens_obfuscated])
             inverter_optimizer.zero_grad()
             accelerator.backward(inverter_loss)
             if accelerator.sync_gradients:
@@ -492,5 +493,6 @@ train_noninvertible_clm(
     inverter_scheduler=inverter_scheduler, 
     checkpoint_dir=checkpoint_dir,
     steps=num_steps,
-    train_clm = True
+    train_clm = True,
+    n_tokens_obfuscated=n_tokens_obfuscated
 )
