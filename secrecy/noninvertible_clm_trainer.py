@@ -27,12 +27,10 @@ from peft import LoraConfig, TaskType, get_peft_model
 
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
-from noninvertible_clm import NonInvertibleTransformer
+from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleModel  # NOTE: ParallelNoninvertibleModel import location is assumed
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
 from accelerate import Accelerator
-from accelerate.utils import DistributedDataParallelKwargs
-from noninvertible_clm import ParallelNoninvertibleModel
 
 from transformers import get_linear_schedule_with_warmup
 from accelerate.utils import TorchDynamoPlugin
@@ -42,45 +40,47 @@ import os
 
 
 class LossLogger:
-    """Buffers per-step losses in memory and appends them to a JSONL file on flush()."""
+    """Keeps running averages of per-step losses and records one averaged row every `log_every` steps.
 
-    def __init__(self, path, enabled=True, resume_step=None):
-        self.path = path
+    The full history is held in memory (it is tiny: one row per `log_every` steps) and written
+    into each checkpoint directory by save(), so every checkpoint carries the log up to that step.
+    """
+
+    def __init__(self, log_every=500, enabled=True, resume_path=None):
+        self.log_every = log_every
         self.enabled = enabled
-        self.buffer = []  # list of (step, {name: tensor_or_float})
-        if enabled:
-            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-            if resume_step:
-                self._truncate_after(resume_step)
+        self.sums = {}    # name -> running sum (kept on device, no sync until a row is recorded)
+        self.counts = {}  # name -> number of steps accumulated in the current window
+        self.rows = []    # finished rows: {"step": ..., "<loss_name>": window average, ...}
+        if enabled and resume_path and os.path.exists(resume_path):
+            with open(resume_path) as f:
+                self.rows = [json.loads(line) for line in f if line.strip()]
 
     def log(self, step, **losses):
-        if self.enabled:
-            # detach so we never hold onto the autograd graph; no .item() here (avoids a GPU sync)
-            self.buffer.append((step, {k: torch.as_tensor(v).detach() for k, v in losses.items()}))
-
-    def flush(self):
-        if not self.enabled or not self.buffer:
+        if not self.enabled:
             return
-        keys = {k for _, d in self.buffer for k in d}
-        cols = {}
-        for k in keys:  # one stack + one device->host copy per loss name
-            idx = [i for i, (_, d) in enumerate(self.buffer) if k in d]
-            vals = torch.stack([self.buffer[i][1][k].float() for i in idx]).cpu().tolist()
-            cols[k] = dict(zip(idx, vals))
-        with open(self.path, "a") as f:
-            for i, (step, _) in enumerate(self.buffer):
-                row = {"step": step, **{k: cols[k][i] for k in sorted(keys) if i in cols[k]}}
+        for k, v in losses.items():
+            v = torch.as_tensor(v).detach().float()  # detach: never hold onto the autograd graph
+            self.sums[k] = self.sums[k] + v if k in self.sums else v
+            self.counts[k] = self.counts.get(k, 0) + 1
+        if step % self.log_every == 0:
+            row = {"step": step}
+            for k in sorted(self.sums):
+                row[k] = (self.sums[k] / self.counts[k]).item()  # one device->host sync per row
+            self.rows.append(row)
+            self.sums.clear()
+            self.counts.clear()
+
+    def save(self, path):
+        """Write the full log to `path` (atomic replace)."""
+        if not self.enabled:
+            return
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            for row in self.rows:
                 f.write(json.dumps(row) + "\n")
-        self.buffer.clear()
-
-    def _truncate_after(self, step):
-        """On resume, drop any logged steps past the checkpoint we're resuming from."""
-        if not os.path.exists(self.path):
-            return
-        with open(self.path) as f:
-            rows = [line for line in f if line.strip() and json.loads(line)["step"] <= step]
-        with open(self.path, "w") as f:
-            f.writelines(rows)
+        os.replace(tmp, path)
 
 
 def toggle_grads(module, bool=True):
@@ -129,7 +129,7 @@ def load_checkpoint(accelerator, model, inverter, model_optimizer, inverter_opti
     return training_state["step"]
 
 @torch.no_grad()
-def evaluate_noninvertibility(noninvertible_clm, inverter, test_dataloader):
+def evaluate_noninvertibility(step, noninvertible_clm, inverter, test_dataloader):
     running_clm_loss = 0
     running_inverter_loss = 0
     for i, batch in enumerate(test_dataloader):
@@ -144,8 +144,8 @@ def evaluate_noninvertibility(noninvertible_clm, inverter, test_dataloader):
         running_inverter_loss += inverter_loss.detach()
 
     if accelerator.is_main_process:
-        tqdm.write(f'Evaluation Inverter loss: {round(float(running_inverter_loss)/len(test_dataloader), 4)}') 
-        tqdm.write(f'Evaluation CausalLM Loss: {round(float(running_clm_loss)/len(test_dataloader), 4)}')
+        tqdm.write(f'Step {step} Evaluation Inverter loss: {round(float(running_inverter_loss)/len(test_dataloader), 4)}') 
+        tqdm.write(f'Step {step} Evaluation CausalLM Loss: {round(float(running_clm_loss)/len(test_dataloader), 4)}')
     return
 
 
@@ -165,14 +165,16 @@ def train_noninvertible_clm(
         start_step=0,
         steps=200000,
         train_clm=True,
-        evaluate_every=10000
+        evaluate_every=10000,
+        log_every=500
     ):
     noninvertible_clm.train()
     inverter.train()
     logger = LossLogger(
-        os.path.join(checkpoint_dir, "loss_log.jsonl"),
+        log_every=log_every,
         enabled=accelerator.is_main_process,
-        resume_step=start_step,
+        # when resuming, pick up the log stored in the checkpoint we resume from
+        resume_path=os.path.join(checkpoint_dir, f"step_{start_step}", "loss_log.jsonl") if start_step else None,
     )
     toggle_grads(inverter, bool=False)
     global_step = start_step
@@ -180,7 +182,7 @@ def train_noninvertible_clm(
     while True:
         for i, batch in enumerate(train_dataloader):
             if global_step > steps:
-                logger.flush()
+                logger.save(os.path.join(checkpoint_dir, "loss_log.jsonl"))  # final log
                 return
             global_step += 1
             if accelerator.is_main_process:
@@ -188,11 +190,13 @@ def train_noninvertible_clm(
             inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
             labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
             if train_clm:
+                toggle_grads(inverter, bool=False)
                 with accelerator.autocast():
                     noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
                 total_noninv_loss = noninvertible_clm_loss - noninvertible_inversion_loss
                 noninvertible_clm_optimizer.zero_grad()
                 accelerator.backward(total_noninv_loss)
+
                 # TODO: define running grad norm
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(noninvertible_clm.parameters(), max_grad_norm)
@@ -215,7 +219,7 @@ def train_noninvertible_clm(
                 inverter_scheduler.step()
             toggle_grads(inverter, bool=False)
 
-            # log per-step losses (buffered in memory, written to disk on checkpoint save)
+            # accumulate losses; a window-averaged row is recorded every `log_every` steps
             step_losses = {"inverter_loss": inverter_loss}
             if train_clm:
                 step_losses.update(
@@ -237,9 +241,9 @@ def train_noninvertible_clm(
                         global_step, 
                         os.path.join(checkpoint_dir, f"step_{global_step}")
                     )
-                logger.flush()
+                logger.save(os.path.join(checkpoint_dir, f"step_{global_step}", "loss_log.jsonl"))
             if global_step % evaluate_every == 0:
-                evaluate_noninvertibility(noninvertible_clm, inverter, test_dataloader)
+                evaluate_noninvertibility(global_step, noninvertible_clm, inverter, test_dataloader)
     return
 
 def unwrap_state_dict(state_dict):
@@ -380,7 +384,6 @@ def init_noninvertible_parallelmodel(
     configuration = LlamaConfig(**config_kwargs)
     unified_decoder = LlamaModel(configuration)
 
-    # NOTE: kwarg names assumed to match the ParallelNoninvertibleModel signature
     model = ParallelNoninvertibleModel(
         vocab_size, 
         decoder_dim, 
@@ -409,8 +412,8 @@ vocab_size = len(tokenizer)
 
 model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size)
 
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
 
 # load datasets and duplicate entries
 train_dataset = load_from_disk(train_path)
@@ -449,8 +452,7 @@ dynamo_plugin = TorchDynamoPlugin(
     dynamic=False
 )
 
-ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
-accelerator = Accelerator(mixed_precision='fp16', dynamo_plugin=dynamo_plugin, kwargs_handlers=[ddp_kwargs],)
+accelerator = Accelerator(mixed_precision='fp16', dynamo_plugin=dynamo_plugin)
 model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader, model_scheduler, inverter_scheduler = accelerator.prepare(
     model, 
     model_optimizer, 
@@ -459,7 +461,7 @@ model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dat
     train_dataloader, 
     test_dataloader,
     model_scheduler,
-    inverter_scheduler,
+    inverter_scheduler
 )
 
 loss_fn = torch.nn.CrossEntropyLoss()

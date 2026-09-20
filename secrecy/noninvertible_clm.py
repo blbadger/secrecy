@@ -145,6 +145,7 @@ class ParallelNoninvertibleModel(nn.Module):
 
         output = self.clm_head(clm_x)
         output = rearrange(output, 'b t e -> b e t')
+        inverted_output = rearrange(inverted_output, 'b t e -> b e t')
 
         if labels is not None:
             shift_logits = output[..., :-1]
