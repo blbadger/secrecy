@@ -190,7 +190,7 @@ def train_noninvertible_clm(
             if train_clm:
                 with accelerator.autocast():
                     noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
-                total_noninv_loss = noninvertible_clm_loss - 0.6*noninvertible_inversion_loss
+                total_noninv_loss = noninvertible_clm_loss - noninvertible_inversion_loss
                 noninvertible_clm_optimizer.zero_grad()
                 accelerator.backward(total_noninv_loss)
                 # TODO: define running grad norm
