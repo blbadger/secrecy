@@ -91,11 +91,16 @@ class ParallelNoninvertibleModel(nn.Module):
         parallel_encoder=None,
         unified_decoder=None,
         unified_encoder=None,
+        n_tokens_obfuscated=None
        
     ):
         super().__init__()
         self.cel = nn.CrossEntropyLoss()
         self.tokenized_length = tokenized_length
+        if not n_tokens_obfuscated:
+            self.obfuscate_first_n = self.tokenized_length
+        else:
+            self.obfuscate_first_n = n_tokens_obfuscated
         self.dim = dim
         self.clm_head = clm_head
         self.inversion_head = nn.Linear(dim, n_vocab)
@@ -133,8 +138,9 @@ class ParallelNoninvertibleModel(nn.Module):
         provider_input = self.provider_proj(encoder_outputs[:, :, self.dim//2:])
 
         provider_output = self.provider_model(inputs_embeds=provider_input).last_hidden_state
-        # returns logits, not last hidden state
-        inverted_output = self.inversion_decoder(inputs_embeds=provider_input)
+        
+        inverter_input = provider_input[:, :self.obfuscate_first_n, :]
+        inverted_output = self.inversion_decoder(inputs_embeds=provider_input) # returns logits, not last hidden state
 
         parallel_x = self.parallel_encoder(inputs_embeds=client_input).last_hidden_state
         combined_output = parallel_x + provider_output
@@ -155,6 +161,6 @@ class ParallelNoninvertibleModel(nn.Module):
         if self.clm_loss_only:
             return clm_loss, encoder_embedding
         else:
-            return clm_loss, inversion_loss, provider_input
+            return clm_loss, inversion_loss, inverter_input
 
 

@@ -309,6 +309,7 @@ def init_noninvertible_transformer(tokenizer,
 def init_noninvertible_parallelmodel(
     tokenizer, 
     vocab_size, 
+    n_tokens_obfuscated,
     context_length=512, 
     decoder_dim=512, 
     inverter_layers=8, 
@@ -325,7 +326,7 @@ def init_noninvertible_parallelmodel(
         'num_hidden_layers': inverter_layers,
         'num_attention_heads': n_heads,
         'vocab_size': vocab_size,
-        'max_position_embeddings': context_length
+        'max_position_embeddings': n_tokens_obfuscated
     }
 
     configuration = LlamaConfig(**config_kwargs)
@@ -394,6 +395,7 @@ def init_noninvertible_parallelmodel(
         parallel_encoder=client_encoder,
         unified_decoder=unified_decoder,
         unified_encoder=unified_encoder,
+        n_tokens_obfuscated=n_tokens_obfuscated
     )
     return model, inverter
 
@@ -409,8 +411,8 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
-
-model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size)
+n_tokens_obfuscated=128
+model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
