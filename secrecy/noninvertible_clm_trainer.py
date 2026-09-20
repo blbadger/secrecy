@@ -31,6 +31,7 @@ from noninvertible_clm import NonInvertibleTransformer
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
 from accelerate import Accelerator
+from accelerate.utils import DistributedDataParallelKwargs
 from noninvertible_clm import ParallelNoninvertibleModel
 
 from transformers import get_linear_schedule_with_warmup
@@ -408,8 +409,8 @@ vocab_size = len(tokenizer)
 
 model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size)
 
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
 
 # load datasets and duplicate entries
 train_dataset = load_from_disk(train_path)
@@ -448,7 +449,8 @@ dynamo_plugin = TorchDynamoPlugin(
     dynamic=False
 )
 
-accelerator = Accelerator(mixed_precision='fp16', dynamo_plugin=dynamo_plugin)
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+accelerator = Accelerator(mixed_precision='fp16', dynamo_plugin=dynamo_plugin, kwargs_handlers=[ddp_kwargs],)
 model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader, model_scheduler, inverter_scheduler = accelerator.prepare(
     model, 
     model_optimizer, 
@@ -457,7 +459,7 @@ model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dat
     train_dataloader, 
     test_dataloader,
     model_scheduler,
-    inverter_scheduler
+    inverter_scheduler,
 )
 
 loss_fn = torch.nn.CrossEntropyLoss()
