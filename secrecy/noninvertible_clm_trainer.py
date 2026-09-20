@@ -168,7 +168,7 @@ def train_noninvertible_clm(
         evaluate_every=10000,
         log_every=500,
         n_tokens_obfuscated=128
-    )
+    ):
     noninvertible_clm.train()
     inverter.train()
     logger = LossLogger(
