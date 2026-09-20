@@ -141,6 +141,7 @@ class ParallelNoninvertibleModel(nn.Module):
         
         inverter_input = provider_input[:, :self.obfuscate_first_n, :] # [b t e]
         inverted_output = self.inversion_decoder(inputs_embeds=provider_input) # returns logits, not last hidden state
+        print (inverted_output.shape)
 
         parallel_x = self.parallel_encoder(inputs_embeds=client_input).last_hidden_state
         combined_output = parallel_x + provider_output
