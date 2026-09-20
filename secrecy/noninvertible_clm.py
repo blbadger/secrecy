@@ -28,6 +28,9 @@ class NonInvertibleTransformer(nn.Module):
         ):
         super().__init__()
         self.inversion_decoder = inversion_decoder
+        # inversion model is frozen here, trained elsewhere
+        for _, param in self.inversion_decoder.named_parameters():
+            param.requires_grad = False
 
         self.cel = nn.CrossEntropyLoss()
         self.tokenized_length = tokenized_length
