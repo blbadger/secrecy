@@ -133,11 +133,8 @@ class ParallelNoninvertibleModel(nn.Module):
         provider_input = self.provider_proj(encoder_outputs[:, :, self.dim//2:])
 
         provider_output = self.provider_model(inputs_embeds=provider_input).last_hidden_state
-
-        if isinstance(self.inversion_decoder, AbbreviatedModel):
-            inverted_output = self.inversion_decoder(provider_input)
-        else:
-            inverted_output = self.inversion_decoder(inputs_embeds=provider_input)
+        # returns logits, not last hidden state
+        inverted_output = self.inversion_decoder(inputs_embeds=provider_input)
 
         parallel_x = self.parallel_encoder(inputs_embeds=client_input).last_hidden_state
         combined_output = parallel_x + provider_output
@@ -145,7 +142,6 @@ class ParallelNoninvertibleModel(nn.Module):
 
         output = self.clm_head(clm_x)
         output = rearrange(output, 'b t e -> b e t')
-        inverted_output = rearrange(inverted_output, 'b t e -> b e t')
 
         if labels is not None:
             shift_logits = output[..., :-1]
@@ -159,6 +155,6 @@ class ParallelNoninvertibleModel(nn.Module):
         if self.clm_loss_only:
             return clm_loss, encoder_embedding
         else:
-            return clm_loss, inversion_loss, encoder_outputs
+            return clm_loss, inversion_loss, provider_input
 
 

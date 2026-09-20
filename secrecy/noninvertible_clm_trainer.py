@@ -6,7 +6,6 @@ from torch.utils.data import DataLoader
 from einops import rearrange
 import transformers
 from transformers import AutoTokenizer
-import mlflow
 
 from datasets import load_dataset, load_from_disk, concatenate_datasets
 import transformers
@@ -27,11 +26,11 @@ from peft import LoraConfig, TaskType, get_peft_model
 
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
-from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleModel  # NOTE: ParallelNoninvertibleModel import location is assumed
+from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleModel
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
 from accelerate import Accelerator
-
+from accelerate.utils import DistributedDataParallelKwargs
 from transformers import get_linear_schedule_with_warmup
 from accelerate.utils import TorchDynamoPlugin
 
@@ -68,6 +67,7 @@ class LossLogger:
             for k in sorted(self.sums):
                 row[k] = (self.sums[k] / self.counts[k]).item()  # one device->host sync per row
             self.rows.append(row)
+            print(row)
             self.sums.clear()
             self.counts.clear()
 
@@ -412,8 +412,8 @@ vocab_size = len(tokenizer)
 
 model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size)
 
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
 
 # load datasets and duplicate entries
 train_dataset = load_from_disk(train_path)
@@ -452,7 +452,9 @@ dynamo_plugin = TorchDynamoPlugin(
     dynamic=False
 )
 
-accelerator = Accelerator(mixed_precision='fp16', dynamo_plugin=dynamo_plugin)
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+
+accelerator = Accelerator(mixed_precision='fp16', dynamo_plugin=dynamo_plugin, kwargs_handlers=[ddp_kwargs])
 model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader, model_scheduler, inverter_scheduler = accelerator.prepare(
     model, 
     model_optimizer, 
