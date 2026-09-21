@@ -88,7 +88,17 @@ def toggle_grads(module, bool=True):
         param.requires_grad = bool
     return
 
-def save_checkpoint(accelerator, model, inverter, model_optimizer, inverter_optimizer, clm_scheduler, inverter_scheduler, step, checkpoint_dir):
+def save_checkpoint(
+        accelerator, 
+        model, 
+        inverter, 
+        model_optimizer, 
+        inverter_optimizer, 
+        clm_scheduler, 
+        inverter_scheduler, 
+        step, 
+        checkpoint_dir
+    ):
     accelerator.wait_for_everyone()
     
     if accelerator.is_main_process:
@@ -116,8 +126,16 @@ def save_checkpoint(accelerator, model, inverter, model_optimizer, inverter_opti
     accelerator.wait_for_everyone()
     return
 
-def load_checkpoint(accelerator, model, inverter, model_optimizer, inverter_optimizer, 
-                     clm_scheduler, inverter_scheduler, checkpoint_dir):
+def load_checkpoint(
+        accelerator, 
+        model, 
+        inverter, 
+        model_optimizer, 
+        inverter_optimizer, 
+        clm_scheduler, 
+        inverter_scheduler, 
+        checkpoint_dir
+    ):
     unwrapped_model = accelerator.unwrap_model(model)
     unwrapped_inverter = accelerator.unwrap_model(inverter)
 
@@ -133,7 +151,15 @@ def load_checkpoint(accelerator, model, inverter, model_optimizer, inverter_opti
     return training_state["step"]
 
 @torch.no_grad()
-def evaluate_noninvertibility(step, noninvertible_clm, inverter, test_dataloader, n_tokens_obfuscated, tokenizer):
+def evaluate_noninvertibility(
+        step, 
+        noninvertible_clm, 
+        inverter, 
+        test_dataloader, 
+        n_tokens_obfuscated, 
+        tokenizer, 
+        accelerator
+    ):
     running_clm_loss = 0
     running_inverter_loss = 0
     for i, batch in enumerate(test_dataloader):
@@ -250,7 +276,7 @@ def train_noninvertible_clm(
                     )
                 logger.save(os.path.join(checkpoint_dir, f"step_{global_step}", "loss_log.jsonl"))
             if global_step % evaluate_every == 0:
-                evaluate_noninvertibility(global_step, noninvertible_clm, inverter, test_dataloader, n_tokens_obfuscated, tokenizer)
+                evaluate_noninvertibility(global_step, noninvertible_clm, inverter, test_dataloader, n_tokens_obfuscated, tokenizer, accelerator)
     return
 
 def unwrap_state_dict(state_dict):
@@ -264,12 +290,13 @@ def unwrap_state_dict(state_dict):
     return new_state_dict
 
 def init_noninvertible_transformer(tokenizer, 
-    vocab_size, 
-    context_length=512, 
-    decoder_dim=512, 
-    inverter_layers=8, 
-    model_layers=16, 
-    n_heads=4):
+        vocab_size, 
+        context_length=512, 
+        decoder_dim=512, 
+        inverter_layers=8, 
+        model_layers=16, 
+        n_heads=4
+    ):
     encoder_config_kwargs = { 
         'hidden_size': decoder_dim,
         'intermediate_size': 4*decoder_dim,
