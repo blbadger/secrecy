@@ -30,7 +30,7 @@ from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleMod
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
 from accelerate import Accelerator
-from accelerate.utils import DistributedDataParallelKwargs
+from accelerate.utils import DistributedDataParallelKwargs, is_compiled_module
 from transformers import get_linear_schedule_with_warmup
 from accelerate.utils import TorchDynamoPlugin
 
@@ -96,6 +96,10 @@ def save_checkpoint(accelerator, model, inverter, model_optimizer, inverter_opti
 
     unwrapped_clm_model = accelerator.unwrap_model(model)
     unwrapped_inverter = accelerator.unwrap_model(inverter)
+
+    # unwrap compiled module (_orig_mod)
+    unwrapped_clm_model = unwrapped_clm_model._orig_mod if is_compiled_module(unwrapped_clm_model) else unwrapped_clm_model
+    unwrapped_inverter = unwrapped_inverter._orig_mod if is_compiled_module(unwrapped_inverter) else unwrapped_inverter
     if accelerator.is_main_process:
         # model weights -> safetensors (must be contiguous + on CPU)
         save_model(unwrapped_clm_model,  os.path.join(checkpoint_dir, "clm_model.safetensors"))
@@ -157,6 +161,8 @@ def train_noninvertible_clm(
         inverter, 
         inverter_optimizer, 
         loss_fn, 
+        accelerator, 
+        tokenizer=None,
         max_grad_norm=1.,
         clm_scheduler=None,
         inverter_scheduler=None,
@@ -400,99 +406,103 @@ def init_noninvertible_parallelmodel(
     )
     return model, inverter
 
-warnings.filterwarnings(action='ignore')
 
-load_dotenv()
-checkpoint_root = os.getenv('CHECKPOINT_ROOT')
-data_root = os.getenv('DATA_ROOT')
+if __name__ == '__main__':
+    warnings.filterwarnings(action='ignore')
+
+    load_dotenv()
+    checkpoint_root = os.getenv('CHECKPOINT_ROOT')
+    data_root = os.getenv('DATA_ROOT')
 
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
-tokenizer.pad_token = tokenizer.eos_token
-vocab_size = len(tokenizer)
-n_tokens_obfuscated = 512
-#model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated)
+    tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
+    tokenizer.pad_token = tokenizer.eos_token
+    vocab_size = len(tokenizer)
+    n_tokens_obfuscated=128
+    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated)
 
-model, inverter = init_noninvertible_transformer(tokenizer, vocab_size)
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-lpad-8k"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-lpad-8k"
+    train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
+    test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
 
-# load datasets and duplicate entries
-train_dataset = load_from_disk(train_path)
-test_dataset = load_from_disk(test_path)
+    # load datasets and duplicate entries
+    train_dataset = load_from_disk(train_path)
+    test_dataset = load_from_disk(test_path)
 
-learning_rate = 2e-4
-num_gpus = torch.cuda.device_count()
-batch_size = 128 // num_gpus
-train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
-test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    learning_rate = 2e-4
+    num_gpus = 0
+    num_gpus = torch.cuda.device_count()
+    batch_size = 128 // num_gpus
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
+    model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
 
-num_steps = 200000
-total_training_steps = num_steps
+    num_steps = 200000
+    total_training_steps = num_steps
 
-model_scheduler = get_linear_schedule_with_warmup(
-    model_optimizer,
-    num_warmup_steps=500,
-    num_training_steps=total_training_steps,
-)
+    model_scheduler = get_linear_schedule_with_warmup(
+        model_optimizer,
+        num_warmup_steps=500,
+        num_training_steps=total_training_steps,
+    )
 
-inverter_scheduler = get_linear_schedule_with_warmup(
-    inverter_optimizer,
-    num_warmup_steps=500,
-    num_training_steps=total_training_steps
-)
+    inverter_scheduler = get_linear_schedule_with_warmup(
+        inverter_optimizer,
+        num_warmup_steps=500,
+        num_training_steps=total_training_steps
+    )
 
-# Configure the compilation backend
-dynamo_plugin = TorchDynamoPlugin(
-    backend="inductor",
-    mode="default",
-    fullgraph=False,
-    dynamic=False
-)
+    # Configure the compilation backend
+    dynamo_plugin = TorchDynamoPlugin(
+        backend="inductor",
+        mode="default",
+        fullgraph=False,
+        dynamic=False
+    )
 
-ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 
-accelerator = Accelerator(mixed_precision='fp16', dynamo_plugin=dynamo_plugin, kwargs_handlers=[ddp_kwargs])
-model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader, model_scheduler, inverter_scheduler = accelerator.prepare(
-    model, 
-    model_optimizer, 
-    inverter, 
-    inverter_optimizer, 
-    train_dataloader, 
-    test_dataloader,
-    model_scheduler,
-    inverter_scheduler
-)
+    accelerator = Accelerator(mixed_precision='fp16', dynamo_plugin=dynamo_plugin, kwargs_handlers=[ddp_kwargs])
+    model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader, model_scheduler, inverter_scheduler = accelerator.prepare(
+        model, 
+        model_optimizer, 
+        inverter, 
+        inverter_optimizer, 
+        train_dataloader, 
+        test_dataloader,
+        model_scheduler,
+        inverter_scheduler
+    )
 
-loss_fn = torch.nn.CrossEntropyLoss()
+    loss_fn = torch.nn.CrossEntropyLoss()
 
-n_devices = accelerator.num_processes
-checkpoint_dir = f"{data_root}/noninvertible_model_balancedloss_b{batch_size}x{n_devices}"
+    n_devices = accelerator.num_processes
+    checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_b{batch_size}x{n_devices}"
 
-print (f"training model, saving to {checkpoint_dir}")
-# save driver code snapshot in checkpoint dir
-code_path = os.path.abspath(__file__)
-if not os.path.isdir(checkpoint_dir):
-    os.mkdir(checkpoint_dir)
-shutil.copy(code_path, checkpoint_dir)
+    print (f"training model, saving to {checkpoint_dir}")
+    # save driver code snapshot in checkpoint dir
+    code_path = os.path.abspath(__file__)
+    if not os.path.isdir(checkpoint_dir):
+        os.mkdir(checkpoint_dir)
+    shutil.copy(code_path, checkpoint_dir)
 
-train_noninvertible_clm(
-    train_dataloader, 
-    test_dataloader, 
-    model, 
-    model_optimizer, 
-    inverter, 
-    inverter_optimizer, 
-    loss_fn,
-    clm_scheduler=model_scheduler, 
-    inverter_scheduler=inverter_scheduler, 
-    checkpoint_dir=checkpoint_dir,
-    steps=num_steps,
-    train_clm = True,
-    n_tokens_obfuscated=n_tokens_obfuscated
-)
+    train_noninvertible_clm(
+        train_dataloader, 
+        test_dataloader, 
+        model, 
+        model_optimizer, 
+        inverter, 
+        inverter_optimizer, 
+        loss_fn,
+        accelerator,
+        tokenizer=tokenizer,
+        clm_scheduler=model_scheduler, 
+        inverter_scheduler=inverter_scheduler, 
+        checkpoint_dir=checkpoint_dir,
+        steps=num_steps,
+        train_clm = True,
+        n_tokens_obfuscated=n_tokens_obfuscated
+    )
