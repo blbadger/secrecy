@@ -30,7 +30,7 @@ from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleMod
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
 from accelerate import Accelerator
-from accelerate.utils import DistributedDataParallelKwargsfrom, is_compiled_module
+from accelerate.utils import DistributedDataParallelKwargs, is_compiled_module
 from transformers import get_linear_schedule_with_warmup
 from accelerate.utils import TorchDynamoPlugin
 
@@ -161,6 +161,8 @@ def train_noninvertible_clm(
         inverter, 
         inverter_optimizer, 
         loss_fn, 
+        accelerator, 
+        tokenizer=None,
         max_grad_norm=1.,
         clm_scheduler=None,
         inverter_scheduler=None,
@@ -495,6 +497,8 @@ if __name__ == '__main__':
         inverter, 
         inverter_optimizer, 
         loss_fn,
+        accelerator,
+        tokenizer=tokenizer,
         clm_scheduler=model_scheduler, 
         inverter_scheduler=inverter_scheduler, 
         checkpoint_dir=checkpoint_dir,

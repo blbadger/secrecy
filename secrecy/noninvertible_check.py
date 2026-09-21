@@ -25,7 +25,7 @@ from tqdm import tqdm
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
 from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleModel
-from noninvertible_clm_trainer import init_noninvertible_parallelmodel, init_noninvertible_transformer, unwrap_state_dict, load_checkpoint,  toggle_grads
+from noninvertible_clm_trainer import init_noninvertible_parallelmodel, init_noninvertible_transformer, unwrap_state_dict, load_checkpoint, toggle_grads, train_noninvertible_clm
 
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
@@ -38,13 +38,12 @@ from safetensors.torch import save_file, save_model, load_model, load_file
 import os
 
 def remap_keys(key):
-    if key in key_mapping:
-        return key_mapping[key]
-    
-    if key.startswith("_orig_mod."):
-        return key.replace("_orig_mod..", "")
-        
-    return key
+    prefix = "_orig_mod."
+    if key.startswith(prefix):
+        key = key.replace(prefix, "")
+        return key
+    else:    
+        return key
 
 
 warnings.filterwarnings(action='ignore')
@@ -66,7 +65,7 @@ model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_toke
 model_checkpoint_path = f"{checkpoint_root}/noninvertible_parallelmodel_b64x2/step_200000/clm_model.safetensors"
 model_state_dict = load_file(model_checkpoint_path)
 # deals with unwrapped modules
-remapped_state_dict = {remap_keys(k): v for k, v in state_dict.items()}
+remapped_state_dict = {remap_keys(k): v for k, v in model_state_dict.items()}
 model.load_state_dict(remapped_state_dict, strict=True)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
@@ -136,6 +135,8 @@ train_noninvertible_clm(
     inverter, 
     inverter_optimizer, 
     loss_fn,
+    accelerator,
+    tokenizer=tokenizer,
     clm_scheduler=model_scheduler, 
     inverter_scheduler=inverter_scheduler, 
     checkpoint_dir=checkpoint_dir,
