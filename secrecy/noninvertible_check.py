@@ -44,7 +44,6 @@ load_dotenv()
 checkpoint_root = os.getenv('CHECKPOINT_ROOT')
 data_root = os.getenv('DATA_ROOT')
 
-
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
@@ -53,6 +52,10 @@ vocab_size = len(tokenizer)
 
 n_tokens_obfuscated = 512
 model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated)
+
+# load_model, train inverter from scratch (model remains frozen)
+model_checkpoint_path = f"{checkpoint_root}/noninvertible_parallelmodel_b64x2/step_200000/clm_model.safetensors"
+model = load_model(model, model_checkpoint_path)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
@@ -111,10 +114,6 @@ loss_fn = torch.nn.CrossEntropyLoss()
 
 n_devices = accelerator.num_processes
 checkpoint_dir = f"{data_root}/noninvertible_check_b{batch_size}x{n_devices}"
-
-# load_model, train inverter from scratch (model remains frozen)
-model_checkpoint_path = f"{checkpoint_root}/noninvertible_parallelmodel_b64x2/step_200000/clm_model.safetensors"
-model = load_model(model, model_checkpoint_path)
 print ('Model loaded, inverter initialized, training inverter only')
 
 train_noninvertible_clm(
