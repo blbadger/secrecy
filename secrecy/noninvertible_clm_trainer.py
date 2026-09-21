@@ -133,7 +133,7 @@ def load_checkpoint(accelerator, model, inverter, model_optimizer, inverter_opti
     return training_state["step"]
 
 @torch.no_grad()
-def evaluate_noninvertibility(step, noninvertible_clm, inverter, test_dataloader, n_tokens_obfuscated):
+def evaluate_noninvertibility(step, noninvertible_clm, inverter, test_dataloader, n_tokens_obfuscated, tokenizer):
     running_clm_loss = 0
     running_inverter_loss = 0
     for i, batch in enumerate(test_dataloader):
@@ -250,7 +250,7 @@ def train_noninvertible_clm(
                     )
                 logger.save(os.path.join(checkpoint_dir, f"step_{global_step}", "loss_log.jsonl"))
             if global_step % evaluate_every == 0:
-                evaluate_noninvertibility(global_step, noninvertible_clm, inverter, test_dataloader, n_tokens_obfuscated)
+                evaluate_noninvertibility(global_step, noninvertible_clm, inverter, test_dataloader, n_tokens_obfuscated, tokenizer)
     return
 
 def unwrap_state_dict(state_dict):
