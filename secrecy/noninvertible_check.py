@@ -115,6 +115,7 @@ checkpoint_dir = f"{data_root}/noninvertible_check_b{batch_size}x{n_devices}"
 # load_model, train inverter from scratch (model remains frozen)
 model_checkpoint_path = f"{checkpoint_root}/noninvertible_parallelmodel_b64x2/step_200000/clm_model.safetensors"
 model = load_model(model, model_checkpoint_path)
+print ('Model loaded, inverter initialized, training inverter only')
 
 train_noninvertible_clm(
     train_dataloader, 
