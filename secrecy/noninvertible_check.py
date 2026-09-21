@@ -51,7 +51,7 @@ tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
 
-n_tokens_obfuscated = 128
+n_tokens_obfuscated = 512
 model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
@@ -113,8 +113,8 @@ n_devices = accelerator.num_processes
 checkpoint_dir = f"{data_root}/noninvertible_check_b{batch_size}x{n_devices}"
 
 # load_model, train inverter from scratch (model remains frozen)
-model_checkpoint_path = f"{checkpoint_root}/noninvertible_model_b64x2/step_90000/clm_model.safetensors"
-load_model(model, model_checkpoint_path)
+model_checkpoint_path = f"{checkpoint_root}/noninvertible_parallelmodel_b64x2/step_200000/clm_model.safetensors"
+model = load_model(model, model_checkpoint_path)
 
 train_noninvertible_clm(
     train_dataloader, 
