@@ -145,7 +145,6 @@ model = ParallelModel(
 load_model(model, f"{checkpoint_root}/fineweb_parallelmodel_pretagged_d512_n6_c512_b64x2/checkpoint-200000/model.safetensors")
 model = model.split_model
 
-
 global_batch_size = 128
 n_devices = 4
 # get number of devices (assumes that all visible devices are used for training)

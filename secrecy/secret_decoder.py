@@ -132,6 +132,7 @@ if __name__ == '__main__':
 	model = LlamaForCausalLM(encoder_configuration)
 	model = SecretDecoder(vocab_size, decoder_dim, model, embedding_dim=128)
 
+
 	#train_path = "{data_root}/fineweb-edu-encodings-s0/{i}_{j}"
 	#test_path = f"{data_root}/fineweb-edu-encodings-s0/10_0"
 	train_path = "{data_root}/fineweb-edu-encodings-parallel/shard_{i}"
@@ -141,6 +142,7 @@ if __name__ == '__main__':
 	
 	train_dataset = dataset.skip(512)
 	test_dataset = dataset.take(512)
+
 
 	#train_dataset = load_from_disk(train_path)#.skip(50)
 	#test_dataset = load_from_disk(test_path)
@@ -167,7 +169,7 @@ if __name__ == '__main__':
 	print (f'training with {n_devices} devices, {batch_size} batch size for each')
 	encoder_dim = 512
 	# descriptive name for output
-	output_dir = f'{checkpoint_root}/fineweb_parallel_c4_inverter\
+	output_dir = f'{checkpoint_root}/fineweb_parallel_c4_inversion\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\

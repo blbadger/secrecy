@@ -1,11 +1,11 @@
 import os
+import json
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from einops import rearrange
 import transformers
 from transformers import AutoTokenizer
-import mlflow
 
 from datasets import load_dataset, load_from_disk, concatenate_datasets
 import transformers
@@ -26,16 +26,61 @@ from peft import LoraConfig, TaskType, get_peft_model
 
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
-from noninvertible_clm import NonInvertibleTransformer
+from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleModel
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
 from accelerate import Accelerator
-
+from accelerate.utils import DistributedDataParallelKwargs
 from transformers import get_linear_schedule_with_warmup
 from accelerate.utils import TorchDynamoPlugin
 
 from safetensors.torch import save_file, save_model, load_model, load_file
 import os
+
+
+class LossLogger:
+    """Keeps running averages of per-step losses and records one averaged row every `log_every` steps.
+
+    The full history is held in memory (it is tiny: one row per `log_every` steps) and written
+    into each checkpoint directory by save(), so every checkpoint carries the log up to that step.
+    """
+
+    def __init__(self, log_every=500, enabled=True, resume_path=None):
+        self.log_every = log_every
+        self.enabled = enabled
+        self.sums = {}    # name -> running sum (kept on device, no sync until a row is recorded)
+        self.counts = {}  # name -> number of steps accumulated in the current window
+        self.rows = []    # finished rows: {"step": ..., "<loss_name>": window average, ...}
+        if enabled and resume_path and os.path.exists(resume_path):
+            with open(resume_path) as f:
+                self.rows = [json.loads(line) for line in f if line.strip()]
+
+    def log(self, step, **losses):
+        if not self.enabled:
+            return
+        for k, v in losses.items():
+            v = torch.as_tensor(v).detach().float()  # detach: never hold onto the autograd graph
+            self.sums[k] = self.sums[k] + v if k in self.sums else v
+            self.counts[k] = self.counts.get(k, 0) + 1
+        if step % self.log_every == 0:
+            row = {"step": step}
+            for k in sorted(self.sums):
+                row[k] = (self.sums[k] / self.counts[k]).item()  # one device->host sync per row
+            self.rows.append(row)
+            print(row)
+            self.sums.clear()
+            self.counts.clear()
+
+    def save(self, path):
+        """Write the full log to `path` (atomic replace)."""
+        if not self.enabled:
+            return
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            for row in self.rows:
+                f.write(json.dumps(row) + "\n")
+        os.replace(tmp, path)
 
 
 def toggle_grads(module, bool=True):
@@ -84,7 +129,7 @@ def load_checkpoint(accelerator, model, inverter, model_optimizer, inverter_opti
     return training_state["step"]
 
 @torch.no_grad()
-def evaluate_noninvertibility(noninvertible_clm, inverter, test_dataloader):
+def evaluate_noninvertibility(step, noninvertible_clm, inverter, test_dataloader, n_tokens_obfuscated):
     running_clm_loss = 0
     running_inverter_loss = 0
     for i, batch in enumerate(test_dataloader):
@@ -95,12 +140,12 @@ def evaluate_noninvertibility(noninvertible_clm, inverter, test_dataloader):
         running_clm_loss += noninvertible_clm_loss.detach()
 
         with accelerator.autocast():
-            inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
+            inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels[:, :n_tokens_obfuscated])
         running_inverter_loss += inverter_loss.detach()
 
     if accelerator.is_main_process:
-        tqdm.write(f'Evaluation Inverter loss: {round(float(running_inverter_loss)/len(test_dataloader), 4)}') 
-        tqdm.write(f'Evaluation CausalLM Loss: {round(float(running_clm_loss)/len(test_dataloader), 4)}')
+        tqdm.write(f'Step {step} Evaluation Inverter loss: {round(float(running_inverter_loss)/len(test_dataloader), 4)}') 
+        tqdm.write(f'Step {step} Evaluation CausalLM Loss: {round(float(running_clm_loss)/len(test_dataloader), 4)}')
     return
 
 
@@ -120,22 +165,25 @@ def train_noninvertible_clm(
         start_step=0,
         steps=200000,
         train_clm=True,
-        evaluate_every=10000
+        evaluate_every=10000,
+        log_every=500,
+        n_tokens_obfuscated=128
     ):
     noninvertible_clm.train()
     inverter.train()
-    total_loss = 0
-    log_every = 50
-    running_clm_loss = 0
-    running_inverter_loss = 0
-    running_noninv_loss = 0
-    running_clm_grad_norm = 0
+    logger = LossLogger(
+        log_every=log_every,
+        enabled=accelerator.is_main_process,
+        # when resuming, pick up the log stored in the checkpoint we resume from
+        resume_path=os.path.join(checkpoint_dir, f"step_{start_step}", "loss_log.jsonl") if start_step else None,
+    )
     toggle_grads(inverter, bool=False)
     global_step = start_step
     pbar = tqdm(total=steps, initial=global_step, desc='global step')
     while True:
         for i, batch in enumerate(train_dataloader):
             if global_step > steps:
+                logger.save(os.path.join(checkpoint_dir, "loss_log.jsonl"))  # final log
                 return
             global_step += 1
             if accelerator.is_main_process:
@@ -143,27 +191,26 @@ def train_noninvertible_clm(
             inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
             labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
             if train_clm:
+                toggle_grads(inverter, bool=False)
                 with accelerator.autocast():
                     noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
-                total_noninv_loss = noninvertible_clm_loss - 0.6*noninvertible_inversion_loss
+                total_noninv_loss = noninvertible_clm_loss - noninvertible_inversion_loss
                 noninvertible_clm_optimizer.zero_grad()
                 accelerator.backward(total_noninv_loss)
+
                 # TODO: define running grad norm
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(noninvertible_clm.parameters(), max_grad_norm)
                 noninvertible_clm_optimizer.step()
                 if accelerator.sync_gradients:
                     clm_scheduler.step()
-
-                running_clm_loss += noninvertible_clm_loss.detach()
-                running_noninv_loss += noninvertible_inversion_loss.detach()
             else:
                 with accelerator.autocast() and torch.no_grad():
                     _, _, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
 
             toggle_grads(inverter, bool=True)
             with accelerator.autocast():
-                inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
+                inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels[:, :n_tokens_obfuscated])
             inverter_optimizer.zero_grad()
             accelerator.backward(inverter_loss)
             if accelerator.sync_gradients:
@@ -172,15 +219,16 @@ def train_noninvertible_clm(
             if accelerator.sync_gradients:
                 inverter_scheduler.step()
             toggle_grads(inverter, bool=False)
-            running_inverter_loss += inverter_loss.detach()
 
-            if global_step % log_every == 0 and accelerator.is_main_process:
-                tqdm.write(f'Step {global_step} Inverter loss: {round(float(running_inverter_loss)/log_every, 4)}') 
-                tqdm.write(f'Step {global_step} CausalLM Loss: {round(float(running_clm_loss)/log_every, 4)}')
-                tqdm.write(f'Epoch {round(global_step/len(train_dataloader), 4)}')
-                running_inverter_loss = 0
-                running_clm_loss = 0
-                running_noninv_loss = 0
+            # accumulate losses; a window-averaged row is recorded every `log_every` steps
+            step_losses = {"inverter_loss": inverter_loss}
+            if train_clm:
+                step_losses.update(
+                    clm_loss=noninvertible_clm_loss,
+                    inversion_loss=noninvertible_inversion_loss,
+                    total_noninv_loss=total_noninv_loss,
+                )
+            logger.log(global_step, **step_losses)
 
             if global_step % save_every == 0:
                 save_checkpoint(
@@ -194,8 +242,9 @@ def train_noninvertible_clm(
                         global_step, 
                         os.path.join(checkpoint_dir, f"step_{global_step}")
                     )
+                logger.save(os.path.join(checkpoint_dir, f"step_{global_step}", "loss_log.jsonl"))
             if global_step % evaluate_every == 0:
-                evaluate_noninvertibility(noninvertible_clm, inverter, test_dataloader)
+                evaluate_noninvertibility(global_step, noninvertible_clm, inverter, test_dataloader, n_tokens_obfuscated)
     return
 
 def unwrap_state_dict(state_dict):
@@ -208,86 +257,175 @@ def unwrap_state_dict(state_dict):
             new_state_dict[k] = v
     return new_state_dict
 
+def init_noninvertible_transformer(tokenizer, 
+    vocab_size, 
+    context_length=512, 
+    decoder_dim=512, 
+    inverter_layers=8, 
+    model_layers=16, 
+    n_heads=4):
+    encoder_config_kwargs = { 
+        'hidden_size': decoder_dim,
+        'intermediate_size': 4*decoder_dim,
+        'num_hidden_layers': inverter_layers,
+        'num_attention_heads': n_heads,
+        'vocab_size': vocab_size,
+        'max_position_embeddings': context_length
+    }
+
+    # inverter model definition
+    configuration = LlamaConfig(**encoder_config_kwargs)
+    model = LlamaForCausalLM(configuration)
+    inverter = SecretDecoder(vocab_size, decoder_dim, model)
+
+    # Noninvertible model definition
+    encoder_config_kwargs = { 
+        'hidden_size': decoder_dim,
+        'intermediate_size': 4*decoder_dim,
+        'num_hidden_layers': model_layers,
+        'num_attention_heads': n_heads,
+        'vocab_size': vocab_size,
+        'max_position_embeddings': context_length
+    }
+
+    encoder_configuration = LlamaConfig(**encoder_config_kwargs)
+    encoder_model = LlamaForCausalLM(encoder_configuration)
+    original_clm = encoder_model
+
+    clm_head = encoder_model.lm_head
+    encoder_state_dict = encoder_model.model.state_dict()
+    clm_wte = encoder_model.model.embed_tokens
+    split_model = SplitModel(encoder_configuration)
+    split_model.config.num_hidden_layers = model_layers
+
+    model = NonInvertibleTransformer(
+        vocab_size, 
+        decoder_dim, 
+        split_model, 
+        inverter,
+        clm_head=clm_head,
+    )
+    return model
+
+def init_noninvertible_parallelmodel(
+    tokenizer, 
+    vocab_size, 
+    n_tokens_obfuscated,
+    context_length=512, 
+    decoder_dim=512, 
+    inverter_layers=8, 
+    unified_encoder_layers=4,
+    provider_model_layers=16, 
+    client_encoder_layers=3,
+    unified_decoder_layers=4,
+    n_heads=4
+    ):
+    # inversion model specification
+    config_kwargs = { 
+        'hidden_size': decoder_dim,
+        'intermediate_size': 4*decoder_dim,
+        'num_hidden_layers': inverter_layers,
+        'num_attention_heads': n_heads,
+        'vocab_size': vocab_size,
+        'max_position_embeddings': n_tokens_obfuscated
+    }
+
+    configuration = LlamaConfig(**config_kwargs)
+    model = LlamaForCausalLM(configuration)
+    inverter = SecretDecoder(vocab_size, decoder_dim, model)
+
+    # unified encoder specification
+    config_kwargs = { 
+        'hidden_size': decoder_dim,
+        'intermediate_size': 4*decoder_dim,
+        'num_hidden_layers': unified_encoder_layers,
+        'num_attention_heads': n_heads,
+        'vocab_size': vocab_size,
+        'max_position_embeddings': context_length
+    }
+
+    encoder_configuration = LlamaConfig(**config_kwargs)
+    unified_encoder = LlamaModel(encoder_configuration)
+
+    # client encoder specification
+    config_kwargs = { 
+        'hidden_size': decoder_dim,
+        'intermediate_size': 4*decoder_dim,
+        'num_hidden_layers': client_encoder_layers,
+        'num_attention_heads': n_heads,
+        'vocab_size': vocab_size,
+        'max_position_embeddings': context_length
+    }
+
+    configuration = LlamaConfig(**config_kwargs)
+    client_encoder = LlamaModel(configuration)
+
+    # provider model specification
+    config_kwargs = { 
+        'hidden_size': decoder_dim,
+        'intermediate_size': 4*decoder_dim,
+        'num_hidden_layers': provider_model_layers,
+        'num_attention_heads': n_heads,
+        'vocab_size': vocab_size,
+        'max_position_embeddings': context_length
+    }
+
+    configuration = LlamaConfig(**config_kwargs)
+    provider_model = LlamaModel(configuration)
+
+    # unified decoder model specification
+    config_kwargs = { 
+        'hidden_size': decoder_dim,
+        'intermediate_size': 4*decoder_dim,
+        'num_hidden_layers': unified_decoder_layers,
+        'num_attention_heads': n_heads,
+        'vocab_size': vocab_size,
+        'max_position_embeddings': context_length
+    }
+
+    configuration = LlamaConfig(**config_kwargs)
+    unified_decoder = LlamaModel(configuration)
+
+    model = ParallelNoninvertibleModel(
+        vocab_size, 
+        decoder_dim, 
+        provider_model, 
+        inverter, 
+        tokenized_length=context_length, 
+        clm_loss_only=False,
+        parallel_encoder=client_encoder,
+        unified_decoder=unified_decoder,
+        unified_encoder=unified_encoder,
+        n_tokens_obfuscated=n_tokens_obfuscated
+    )
+    return model, inverter
+
 warnings.filterwarnings(action='ignore')
 
 load_dotenv()
 checkpoint_root = os.getenv('CHECKPOINT_ROOT')
 data_root = os.getenv('DATA_ROOT')
 
-device = 'cuda' if torch.cuda.is_available else 'cpu'
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
-context_length = 512
-encoder_dim = 512
-decoder_dim = 128
-n_layers = 8
-n_heads = 4
-encoder_config_kwargs = { 
-    'hidden_size': decoder_dim,
-    'intermediate_size': 4*decoder_dim,
-    'num_hidden_layers': n_layers,
-    'num_attention_heads': n_heads,
-    'vocab_size': vocab_size,
-    'max_position_embeddings': context_length
-}
+n_tokens_obfuscated=128
+model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated)
 
-# inverter model definition
-configuration = LlamaConfig(**encoder_config_kwargs)
-model = LlamaForCausalLM(configuration)
-inverter = SecretDecoder(vocab_size, decoder_dim, model)
-
-# Noninvertible model definition
-context_length = 512
-decoder_dim = 128
-n_layers = 16
-n_heads = 8
-encoder_config_kwargs = { 
-    'hidden_size': decoder_dim,
-    'intermediate_size': 16*decoder_dim,
-    'num_hidden_layers': n_layers,
-    'num_attention_heads': n_heads,
-    'vocab_size': vocab_size,
-    'max_position_embeddings': context_length
-}
-
-encoder_configuration = LlamaConfig(**encoder_config_kwargs)
-encoder_model = LlamaForCausalLM(encoder_configuration)
-original_clm = encoder_model
-
-clm_head = encoder_model.lm_head
-encoder_state_dict = encoder_model.model.state_dict()
-clm_wte = encoder_model.model.embed_tokens
-split_model = SplitModel(encoder_configuration)
-split_model.config.num_hidden_layers = 16
-
-model = NonInvertibleTransformer(
-    vocab_size, 
-    decoder_dim, 
-    split_model, 
-    inverter,
-    clm_head=clm_head,
-)
-
-state_dict = load_file(f'{checkpoint_root}/inversion_check_clm_d128_n16_c512_b32x4/step_200000/clm_model.safetensors')
-state_dict = unwrap_state_dict(state_dict)
-model.load_state_dict(state_dict)
-
-#state_dict = load_file(f'{checkpoint_root}/inversion_check_clm_d512_n16_c512_b32x4/step_8000/inverter.safetensors')
-#state_dict = unwrap_state_dict(state_dict)
-#inverter.load_state_dict(state_dict)
-
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
 
 # load datasets and duplicate entries
-datasets.config.IN_MEMORY_MAX_SIZE = 5e9
 train_dataset = load_from_disk(train_path)
 test_dataset = load_from_disk(test_path)
 
 learning_rate = 2e-4
-batch_size = 32
+num_gpus = 0
+num_gpus = torch.cuda.device_count()
+batch_size = 128 // num_gpus
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
 test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
@@ -317,7 +455,9 @@ dynamo_plugin = TorchDynamoPlugin(
     dynamic=False
 )
 
-accelerator = Accelerator(mixed_precision='fp16', dynamo_plugin=dynamo_plugin)
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+
+accelerator = Accelerator(mixed_precision='fp16', dynamo_plugin=dynamo_plugin, kwargs_handlers=[ddp_kwargs])
 model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader, model_scheduler, inverter_scheduler = accelerator.prepare(
     model, 
     model_optimizer, 
@@ -332,7 +472,7 @@ model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dat
 loss_fn = torch.nn.CrossEntropyLoss()
 
 n_devices = accelerator.num_processes
-checkpoint_dir = f"{data_root}/inversion_check_clm_d{decoder_dim}_n{n_layers}_c{context_length}_b{batch_size}x{n_devices}"
+checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_b{batch_size}x{n_devices}"
 
 print (f"training model, saving to {checkpoint_dir}")
 # save driver code snapshot in checkpoint dir
@@ -353,5 +493,6 @@ train_noninvertible_clm(
     inverter_scheduler=inverter_scheduler, 
     checkpoint_dir=checkpoint_dir,
     steps=num_steps,
-    train_clm =  False
+    train_clm = True,
+    n_tokens_obfuscated=n_tokens_obfuscated
 )

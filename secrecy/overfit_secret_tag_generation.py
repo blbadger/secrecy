@@ -399,7 +399,7 @@ def init_parallel_model_and_datasets(
 	inversion_decoder = LlamaForCausalLM(decoder_configuration)
 	inversion_decoder = SecretDecoder(vocab_size, decoder_dim, inversion_decoder, embedding_dim=128) 
 	# load trained inversion model
-	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_parallel_c4_inverter_512_d512_n8_c512_b8x2/checkpoint-16000/model.safetensors')
+	load_model(inversion_decoder, f'{checkpoint_root}/fineweb_parallel_c4_inversion_512_d512_n8_c512_b4x4/checkpoint-16000/model.safetensors')
 	inversion_head = inversion_decoder.model.lm_head
 	inversion_decoder = inversion_decoder.model
 
@@ -791,6 +791,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	model.clm_training_only = False
 	model.duo_parallel_grads = True # if False, stops propagation down Sc
 	model = train_noninvert(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, max_steps=800, lr=2e-4)
+
 	#secret_model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, parallel_encoder=parallel_encoder, unified_decoder=unified_decoder)
 	
 	print ('Training run completed')
