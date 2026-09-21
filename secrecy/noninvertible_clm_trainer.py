@@ -305,7 +305,7 @@ def init_noninvertible_transformer(tokenizer,
         inverter,
         clm_head=clm_head,
     )
-    return model
+    return model, inverter
 
 def init_noninvertible_parallelmodel(
     tokenizer, 
@@ -412,18 +412,18 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
-n_tokens_obfuscated=128
-model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated)
+n_tokens_obfuscated = 512
+#model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated)
 
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
+model, inverter = init_noninvertible_transformer(tokenizer, vocab_size)
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-lpad-8k"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-lpad-8k"
 
 # load datasets and duplicate entries
 train_dataset = load_from_disk(train_path)
 test_dataset = load_from_disk(test_path)
 
 learning_rate = 2e-4
-num_gpus = 0
 num_gpus = torch.cuda.device_count()
 batch_size = 128 // num_gpus
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
@@ -472,7 +472,7 @@ model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dat
 loss_fn = torch.nn.CrossEntropyLoss()
 
 n_devices = accelerator.num_processes
-checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_b{batch_size}x{n_devices}"
+checkpoint_dir = f"{data_root}/noninvertible_model_balancedloss_b{batch_size}x{n_devices}"
 
 print (f"training model, saving to {checkpoint_dir}")
 # save driver code snapshot in checkpoint dir
