@@ -30,7 +30,7 @@ from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleMod
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
 from accelerate import Accelerator
-from accelerate.utils import DistributedDataParallelKwargs
+from accelerate.utils import DistributedDataParallelKwargsfrom, is_compiled_module
 from transformers import get_linear_schedule_with_warmup
 from accelerate.utils import TorchDynamoPlugin
 
@@ -96,6 +96,10 @@ def save_checkpoint(accelerator, model, inverter, model_optimizer, inverter_opti
 
     unwrapped_clm_model = accelerator.unwrap_model(model)
     unwrapped_inverter = accelerator.unwrap_model(inverter)
+
+    # unwrap compiled module (_orig_mod)
+    unwrapped_clm_model = unwrapped_clm_model._orig_mod if is_compiled_module(unwrapped_clm_model) else unwrapped_clm_model
+    unwrapped_inverter = unwrapped_inverter._orig_mod if is_compiled_module(unwrapped_inverter) else unwrapped_inverter
     if accelerator.is_main_process:
         # model weights -> safetensors (must be contiguous + on CPU)
         save_model(unwrapped_clm_model,  os.path.join(checkpoint_dir, "clm_model.safetensors"))

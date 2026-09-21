@@ -11,7 +11,7 @@ from datasets import load_dataset, load_from_disk, concatenate_datasets
 import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig, LlamaForCausalLM, LlamaModel
 from prettytable import PrettyTable
-from safetensors.torch import save_file, load_model
+from safetensors.torch import save_file, load_model, load_file
 from safetensors import safe_open
 import safetensors
 import datasets
@@ -37,6 +37,15 @@ from accelerate.utils import TorchDynamoPlugin
 from safetensors.torch import save_file, save_model, load_model, load_file
 import os
 
+def remap_keys(key):
+    if key in key_mapping:
+        return key_mapping[key]
+    
+    if key.startswith("_orig_mod."):
+        return key.replace("_orig_mod..", "")
+        
+    return key
+
 
 warnings.filterwarnings(action='ignore')
 
@@ -55,7 +64,10 @@ model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_toke
 
 # load_model, train inverter from scratch (model remains frozen)
 model_checkpoint_path = f"{checkpoint_root}/noninvertible_parallelmodel_b64x2/step_200000/clm_model.safetensors"
-model = load_model(model, model_checkpoint_path)
+model_state_dict = load_file(model_checkpoint_path)
+# deals with unwrapped modules
+remapped_state_dict = {remap_keys(k): v for k, v in state_dict.items()}
+model.load_state_dict(remapped_state_dict, strict=True)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
