@@ -91,7 +91,8 @@ class ParallelNoninvertibleModel(nn.Module):
         parallel_encoder=None,
         unified_decoder=None,
         unified_encoder=None,
-        n_tokens_obfuscated=None
+        n_tokens_obfuscated=None,
+        no_provider_modules=False
        
     ):
         super().__init__()
@@ -112,7 +113,7 @@ class ParallelNoninvertibleModel(nn.Module):
         self.clm_head = nn.Linear(dim, n_vocab)
         self.client_proj = nn.Linear(dim//2, dim)
         self.provider_proj = nn.Linear(dim//2, dim)
-        self.dim= dim
+        self.dim = dim
 
         self.clm_loss_only = clm_loss_only
         # for parallel modeling
@@ -120,6 +121,8 @@ class ParallelNoninvertibleModel(nn.Module):
         self.parallel_encoder = parallel_encoder # LlamaModel 
         self.unified_decoder = unified_decoder # LlamaModel
         self.provider_model = provider_model
+        self.no_provider_modules = no_provider_modules
+
         for _, param in self.inversion_decoder.named_parameters():
             param.requires_grad = False 
         for _, param in self.parallel_encoder.named_parameters():
@@ -143,7 +146,10 @@ class ParallelNoninvertibleModel(nn.Module):
         inverted_output = self.inversion_decoder(inputs_embeds=inverter_input) # returns logits, not last hidden state
 
         parallel_x = self.parallel_encoder(inputs_embeds=client_input).last_hidden_state
-        combined_output = parallel_x + provider_output
+        if self.no_provider_modules:
+            combined_output = parallel_x # omits the provider modules, negative control
+        else:
+            combined_output = parallel_x + provider_output
         clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
 
         output = self.clm_head(clm_x)
