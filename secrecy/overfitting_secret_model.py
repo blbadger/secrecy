@@ -291,7 +291,7 @@ class OverfitSecretTag(nn.Module):
         if self.parallel_encoder and self.unified_decoder:
             parallel_x = self.parallel_encoder(input_ids=input_ids.to(device)).last_hidden_state
             if self.duo_parallel_grads:
-                combined_output = parallel_x + clm_x # grads will propagate to provider decoder and secret model, for inversion+CLM training
+                combined_output = parallel_x #+ clm_x # grads will propagate to provider decoder and secret model, for inversion+CLM training
             else:
                 combined_output = parallel_x + clm_x.detach() # stops gradient from propagating to secret model or provider decoder
             clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
@@ -305,7 +305,7 @@ class OverfitSecretTag(nn.Module):
         if labels is not None:
             if self.use_half_random_target:
                 # first half use random labels and second half use actual inputs
-                half_length = self.tokenized_length - 32 # 64 default
+                half_length = self.tokenized_length - 4 # 64 default
                 if self.recover_predicted_tokens:
                     random_combined_target = torch.cat((labels[:, :half_length], original_clm_tokens[:, half_length:]), dim=1)
                     clm_loss = self.cel(clm_output, random_combined_target)
@@ -336,7 +336,7 @@ class OverfitSecretTag(nn.Module):
             focused_inversion_loss = self.cel(inverted_output[tagged_indices, :, :], labels[tagged_indices, :])
             loss = inversion_loss 
             if self.parallel_training:
-               loss = 0.05*inversion_loss + 0.95*clm_loss
+               loss = 0.45*inversion_loss + 0.55*clm_loss
 
             elif self.clm_training_only and self.parallel_encoder and self.unified_decoder:
                loss = clm_loss

@@ -87,7 +87,7 @@ test_path = f"{data_root}/fineweb-edu-secret-c4-parallel-encodings/secret_0"
 
 datasets.config.IN_MEMORY_MAX_SIZE = 0
 # train dataset is mix of tagged and untagged secret model embeddings and their corresponding token sequences for multiple trained secret models
-train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(1, 10, 1) for j in range(2)])
+train_dataset = concatenate_datasets([load_from_disk(train_path.format(data_root=data_root, i=i, j=j)) for i in range(1, 100, 1) for j in range(2)])
 
 # test dataset is only tagged secret model embeddings from a hold-out secret model
 test_dataset = load_from_disk(test_path)
@@ -124,7 +124,7 @@ training_arguments = transformers.TrainingArguments(
 	per_device_train_batch_size=batch_size,
 	per_device_eval_batch_size=batch_size,
 	warmup_steps=500,
-	eval_steps=500,
+	eval_steps=100,
 	logging_steps=50,
 	learning_rate=2e-4, # default 2e-4
 	fp16=True,

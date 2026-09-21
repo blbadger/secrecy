@@ -724,14 +724,14 @@ def get_attention_map(model, test_dataset, captured_attention, n_layers=16):
 		save_file(attn_matrix, f'{data_root}/attn_matrix_{i}.safetensors')
 	return
 
-num_models = 10
+num_models = 300
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 secret_tags = torch.randint(2, 8000, (num_models, 10,)) # |t| is 10 by default
 random_labels = torch.randint(0, 8000, (num_models, 512,))
 
 parallel_encoder, unified_decoder = None, None
 
-for i in tqdm(range(num_models)):
+for i in tqdm(range(17, num_models)):
 	print (f'Processing model {i}')
 	tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 	tokenizer.pad_token = tokenizer.eos_token
@@ -794,7 +794,7 @@ _c{context_length}_b{batch_size}x{n_devices}'
 	#secret_model = train_clm(model, batch_size, train_dataset, test_dataset, tokenizer, output_dir, parallel_encoder=parallel_encoder, unified_decoder=unified_decoder)
 	
 	print ('Training run completed')
-	save_embeddings(model, dirname="fineweb-edu-secret-c4-parallel-encodings")
+	save_embeddings(model, dirname="fineweb-edu-secret-c4-parallel-encodings-4")
 	#model.save_embeddings = False
 	#model.use_half_random_target=False
 	
