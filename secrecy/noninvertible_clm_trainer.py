@@ -198,6 +198,7 @@ def train_noninvertible_clm(
         steps=200000,
         train_clm=True,
         train_inverter=True,
+        train_for_noninv=True,
         evaluate_every=10000,
         log_every=500,
         n_tokens_obfuscated=128
@@ -227,7 +228,10 @@ def train_noninvertible_clm(
                 toggle_grads(inverter, bool=False)
                 with accelerator.autocast():
                     noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
-                total_noninv_loss = noninvertible_clm_loss - noninvertible_inversion_loss
+                if train_for_noninv:
+                    total_noninv_loss = noninvertible_clm_loss - noninvertible_inversion_loss
+                else:
+                    total_noninv_loss = noninvertible_clm_loss
                 noninvertible_clm_optimizer.zero_grad()
                 accelerator.backward(total_noninv_loss)
 
@@ -512,7 +516,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_control_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_noprovider_control_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -521,7 +525,6 @@ if __name__ == '__main__':
         os.mkdir(checkpoint_dir)
     shutil.copy(code_path, checkpoint_dir)
     
-
     train_noninvertible_clm(
         train_dataloader, 
         test_dataloader, 
@@ -538,5 +541,6 @@ if __name__ == '__main__':
         steps=num_steps,
         train_clm = True,
         train_inverter = False,
+        train_for_noninv = False,
         n_tokens_obfuscated=n_tokens_obfuscated
     )
