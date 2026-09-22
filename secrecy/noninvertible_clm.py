@@ -92,8 +92,9 @@ class ParallelNoninvertibleModel(nn.Module):
         unified_decoder=None,
         unified_encoder=None,
         n_tokens_obfuscated=None,
-        no_provider_modules=False
-       
+        no_provider_modules=False,
+        compress_provider_factor=1,
+        route_method='embedding_split'
     ):
         super().__init__()
         self.cel = nn.CrossEntropyLoss()
@@ -131,14 +132,46 @@ class ParallelNoninvertibleModel(nn.Module):
             param.requires_grad = True
         for _, param in self.unified_encoder.named_parameters():
             param.requires_grad = True
+
+        self.route_method = route_method
+        if self.route_method == 'unroll_embedding':
+            self.unroll_projection = nn.Linear(dim//2, dim)
+        self.provider_emb_compression = compress_provider_factor
+        if self.provider_emb_compression > 1:
+            self.in_provider_proj = nn.Linear(dim, dim//self.provider_emb_compression)
+            self.out_provider_proj = nn.Linear(dim//self.provider_emb_compression, dim)
         
+    def unroll_embedding(self, embedding):
+        embedding_stack = []
+        # sliding window unroll over hidden dim
+        for i in range(self.tokenized_length):
+            i %= self.dim
+            sliding_window = embedding[..., i:i+self.dim//2]
+            if i+self.dim//2 > self.dim:
+                residual = i+self.dim//2 - self.dim # self.tokenized_length
+                # loop around to first index
+                sliding_window = torch.cat((sliding_window, embedding[..., :residual]), dim=2)
+            embedding_stack.append(sliding_window)
+        embedding = torch.cat(embedding_stack, dim=1)
+        embedding = self.unroll_projection(embedding)
+        return embedding
+
            
     def forward(self, input_ids, labels=None, attention_mask=None):
         x = input_ids.to(device)
 
         encoder_outputs = self.unified_encoder(input_ids=x, attention_mask=attention_mask).last_hidden_state # shape [b t e]
-        client_input = self.client_proj(encoder_outputs[:, :, :self.dim//2])
-        provider_input = self.provider_proj(encoder_outputs[:, :, self.dim//2:])
+
+        if self.route_method == 'embedding_split':
+            client_input = self.client_proj(encoder_outputs[:, :, :self.dim//2])
+            provider_input = self.provider_proj(encoder_outputs[:, :, self.dim//2:])
+
+        elif self.route_method == 'unroll_embedding':
+            client_input = encoder_outputs
+            provider_input = self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n, :].unsqueeze(1))
+
+        if self.provider_emb_compression > 1:
+            provider_input = self.out_provider_proj(self.in_provider_proj(provider_input))
 
         provider_output = self.provider_model(inputs_embeds=provider_input).last_hidden_state
         
@@ -146,10 +179,12 @@ class ParallelNoninvertibleModel(nn.Module):
         inverted_output = self.inversion_decoder(inputs_embeds=inverter_input) # returns logits, not last hidden state
 
         parallel_x = self.parallel_encoder(inputs_embeds=client_input).last_hidden_state
+
         if self.no_provider_modules:
             combined_output = parallel_x # omits the provider modules, negative control
         else:
             combined_output = parallel_x + provider_output
+
         clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
 
         output = self.clm_head(clm_x)
