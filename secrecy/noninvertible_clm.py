@@ -135,7 +135,7 @@ class ParallelNoninvertibleModel(nn.Module):
 
         self.route_method = route_method
         if self.route_method == 'unroll_embedding':
-            self.unroll_projection = nn.Linear(decoder_dim//2, decoder_dim)
+            self.unroll_projection = nn.Linear(dim//2, dim)
         self.provider_emb_compression = compress_provider_factor
         if self.provider_emb_compression > 1:
             self.in_provider_proj = nn.Linear(dim, dim//self.provider_emb_compression)
@@ -153,7 +153,7 @@ class ParallelNoninvertibleModel(nn.Module):
                 sliding_window = torch.cat((sliding_window, embedding[..., :residual]), dim=2)
             embedding_stack.append(sliding_window)
         embedding = torch.cat(embedding_stack, dim=1)
-        embedding = self.unroll_projection(encoder_embedding)
+        embedding = self.unroll_projection(embedding)
         return embedding
 
            
@@ -168,7 +168,7 @@ class ParallelNoninvertibleModel(nn.Module):
 
         elif self.route_method == 'unroll_embedding':
             client_input = encoder_outputs
-            provider_input = encoder_outputs[:, self.obfuscate_first_n, :]
+            provider_input = self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n, :].unsqueeze(1))
 
         if self.provider_emb_compression > 1:
             provider_input = self.out_provider_proj(self.in_provider_proj(provider_input))

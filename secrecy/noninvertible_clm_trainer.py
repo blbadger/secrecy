@@ -456,8 +456,8 @@ if __name__ == '__main__':
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
     n_tokens_obfuscated = 128
-    compress_provider_factor = 16
-    route_method='embedding_split'
+    compress_provider_factor = 1
+    route_method = 'unroll_embedding'
     model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
@@ -515,7 +515,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_c16_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_unroll_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
