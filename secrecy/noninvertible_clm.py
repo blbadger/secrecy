@@ -94,8 +94,7 @@ class ParallelNoninvertibleModel(nn.Module):
         n_tokens_obfuscated=None,
         no_provider_modules=False,
         compress_provider_factor=1,
-        route_method='unroll_embedding'
-       
+        route_method='embedding_split'
     ):
         super().__init__()
         self.cel = nn.CrossEntropyLoss()
@@ -140,7 +139,7 @@ class ParallelNoninvertibleModel(nn.Module):
         self.provider_emb_compression = compress_provider_factor
         if self.provider_emb_compression > 1:
             self.in_provider_proj = nn.Linear(dim, dim//self.provider_emb_compression)
-            self.out_provider_proj = nn.Linear(dim//self.provider_emb_comression, dim)
+            self.out_provider_proj = nn.Linear(dim//self.provider_emb_compression, dim)
         
     def unroll_embedding(self, embedding):
         embedding_stack = []
@@ -180,7 +179,7 @@ class ParallelNoninvertibleModel(nn.Module):
         inverted_output = self.inversion_decoder(inputs_embeds=inverter_input) # returns logits, not last hidden state
 
         parallel_x = self.parallel_encoder(inputs_embeds=client_input).last_hidden_state
-        
+
         if self.no_provider_modules:
             combined_output = parallel_x # omits the provider modules, negative control
         else:
