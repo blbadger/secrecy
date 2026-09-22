@@ -252,6 +252,8 @@ def train_noninvertible_clm(
                 inverter_optimizer.step()
                 if accelerator.sync_gradients:
                     inverter_scheduler.step()
+            else:
+                inverter_loss = 0
             toggle_grads(inverter, bool=False)
 
             # accumulate losses; a window-averaged row is recorded every `log_every` steps
