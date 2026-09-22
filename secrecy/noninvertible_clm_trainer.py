@@ -348,6 +348,8 @@ def init_noninvertible_parallelmodel(
     tokenizer, 
     vocab_size, 
     n_tokens_obfuscated,
+    compress_provider_factor=1,
+    route_method='embedding_split',
     context_length=512, 
     decoder_dim=512, 
     inverter_layers=8, 
@@ -433,7 +435,9 @@ def init_noninvertible_parallelmodel(
         parallel_encoder=client_encoder,
         unified_decoder=unified_decoder,
         unified_encoder=unified_encoder,
-        n_tokens_obfuscated=n_tokens_obfuscated
+        n_tokens_obfuscated=n_tokens_obfuscated,
+        compress_provider_factor=compress_provider_factor,
+        route_method=route_method,
     )
     return model, inverter
 
@@ -452,9 +456,9 @@ if __name__ == '__main__':
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
     n_tokens_obfuscated = 128
-    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated)
-    model.no_provider_modules = True
-    print (model.no_provider_modules)
+    compress_provider_factor = 16
+    route_method='embedding_split'
+    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
 
@@ -463,7 +467,6 @@ if __name__ == '__main__':
     test_dataset = load_from_disk(test_path)
 
     learning_rate = 2e-4
-    num_gpus = 0
     num_gpus = torch.cuda.device_count()
     batch_size = 128 // num_gpus
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
@@ -512,7 +515,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_control_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_c16_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -537,6 +540,6 @@ if __name__ == '__main__':
         checkpoint_dir=checkpoint_dir,
         steps=num_steps,
         train_clm = True,
-        train_inverter = False,
+        train_inverter = True,
         n_tokens_obfuscated=n_tokens_obfuscated
     )
