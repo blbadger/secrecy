@@ -197,6 +197,7 @@ def train_noninvertible_clm(
         start_step=0,
         steps=200000,
         train_clm=True,
+        train_inverter=True,
         evaluate_every=10000,
         log_every=500,
         n_tokens_obfuscated=128
@@ -241,15 +242,16 @@ def train_noninvertible_clm(
                     _, _, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
 
             toggle_grads(inverter, bool=True)
-            with accelerator.autocast():
-                inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels[:, :n_tokens_obfuscated])
-            inverter_optimizer.zero_grad()
-            accelerator.backward(inverter_loss)
-            if accelerator.sync_gradients:
-                accelerator.clip_grad_norm_(inverter.parameters(), max_grad_norm)
-            inverter_optimizer.step()
-            if accelerator.sync_gradients:
-                inverter_scheduler.step()
+            if train_inverter:
+                with accelerator.autocast():
+                    inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels[:, :n_tokens_obfuscated])
+                inverter_optimizer.zero_grad()
+                accelerator.backward(inverter_loss)
+                if accelerator.sync_gradients:
+                    accelerator.clip_grad_norm_(inverter.parameters(), max_grad_norm)
+                inverter_optimizer.step()
+                if accelerator.sync_gradients:
+                    inverter_scheduler.step()
             toggle_grads(inverter, bool=False)
 
             # accumulate losses; a window-averaged row is recorded every `log_every` steps
@@ -447,9 +449,10 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
-    n_tokens_obfuscated=128
+    n_tokens_obfuscated = 128
     model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated)
-
+    model.no_provider_modules = True
+    print (model.no_provider_modules)
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
 
@@ -507,7 +510,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_control_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -515,6 +518,7 @@ if __name__ == '__main__':
     if not os.path.isdir(checkpoint_dir):
         os.mkdir(checkpoint_dir)
     shutil.copy(code_path, checkpoint_dir)
+    
 
     train_noninvertible_clm(
         train_dataloader, 
@@ -531,5 +535,6 @@ if __name__ == '__main__':
         checkpoint_dir=checkpoint_dir,
         steps=num_steps,
         train_clm = True,
+        train_inverter = False,
         n_tokens_obfuscated=n_tokens_obfuscated
     )
