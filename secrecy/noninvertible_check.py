@@ -59,10 +59,11 @@ tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
 
 n_tokens_obfuscated = 128
-model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated)
+compress_provider_factor=16
+model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor)
 
 # load_model, train inverter from scratch (model remains frozen)
-model_checkpoint_path = f"{checkpoint_root}/noninvertible_parallelmodel_b32x4/step_200000/clm_model.safetensors"
+model_checkpoint_path = f"{checkpoint_root}/noninvertible_parallelmodel_c16_b32x4/step_100000/clm_model.safetensors"
 model_state_dict = load_file(model_checkpoint_path)
 # deals with unwrapped modules
 remapped_state_dict = {remap_keys(k): v for k, v in model_state_dict.items()}
