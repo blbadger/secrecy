@@ -245,10 +245,13 @@ def train_noninvertible_clm(
                 with accelerator.autocast() and torch.no_grad():
                     _, _, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
 
-            toggle_grads(inverter, bool=True)
+            
             if train_inverter:
+                toggle_grads(inverter, bool=True)
                 with accelerator.autocast():
-                    inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels[:, :n_tokens_obfuscated])
+                    # inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated]) with reduction
+                    inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)[:, :n_tokens_obfuscated] # only take the loss of the secret indices
+                    inverter_loss = torch.mean(inverter_loss)
                 inverter_optimizer.zero_grad()
                 accelerator.backward(inverter_loss)
                 if accelerator.sync_gradients:
@@ -258,6 +261,7 @@ def train_noninvertible_clm(
                     inverter_scheduler.step()
             else:
                 inverter_loss = 0
+            
             toggle_grads(inverter, bool=False)
 
             # accumulate losses; a window-averaged row is recorded every `log_every` steps
@@ -370,12 +374,13 @@ def init_noninvertible_parallelmodel(
         'num_hidden_layers': inverter_layers,
         'num_attention_heads': n_heads,
         'vocab_size': vocab_size,
-        'max_position_embeddings': n_tokens_obfuscated
+        'max_position_embeddings': n_tokens_obfuscated,
+        'is_causal': False
     }
 
     configuration = LlamaConfig(**config_kwargs)
     model = LlamaForCausalLM(configuration)
-    inverter = SecretDecoder(vocab_size, decoder_dim, model)
+    inverter = SecretDecoder(vocab_size, decoder_dim, model, reduce_loss=False)
 
     # unified encoder specification
     config_kwargs = { 

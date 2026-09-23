@@ -36,12 +36,17 @@ device = 'cuda' if torch.cuda.is_available else 'cpu'
 
 class SecretDecoder(nn.Module):
 
-    def __init__(self, n_vocab, dim, model, tokenized_length=512, embedding_dim=512):
+    def __init__(self, n_vocab, dim, model, tokenized_length=512, embedding_dim=512, reduce_loss=True):
         super().__init__()
         self.model = model # assumes a LlamaModel
-        self.cel = nn.CrossEntropyLoss()
+        
         self.tokenized_length = tokenized_length
         self.in_proj = None
+        if reduce_loss:
+        	self.cel = nn.CrossEntropyLoss(reduction='none')
+        else:
+        	self.cel = nn.CrossEntropyLoss()
+
         if embedding_dim != dim:
         	self.in_proj = nn.Linear(embedding_dim, dim)
 
