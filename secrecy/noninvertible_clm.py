@@ -95,7 +95,7 @@ class ParallelNoninvertibleModel(nn.Module):
         no_provider_modules=False,
         compress_provider_factor=1,
         route_method='embedding_split',
-        mask_obfuscated_tokens=False
+        mask_secret_tokens=False
     ):
         super().__init__()
         self.cel = nn.CrossEntropyLoss()
@@ -136,12 +136,12 @@ class ParallelNoninvertibleModel(nn.Module):
 
         self.route_method = route_method
         if self.route_method == 'unroll_embedding':
-            self.unroll_projection = nn.Linear(decoder_dim//2, decoder_dim)
+            self.unroll_projection = nn.Linear(dim//2, dim)
         self.provider_emb_compression = compress_provider_factor
         if self.provider_emb_compression > 1:
             self.in_provider_proj = nn.Linear(dim, dim//self.provider_emb_compression)
             self.out_provider_proj = nn.Linear(dim//self.provider_emb_compression, dim)
-        self.mask_obfuscated_tokens = mask_obfuscated_tokens
+        self.mask_secret_tokens = mask_secret_tokens
         
     def unroll_embedding(self, embedding):
         embedding_stack = []
@@ -150,7 +150,7 @@ class ParallelNoninvertibleModel(nn.Module):
             i %= self.dim
             sliding_window = embedding[..., i:i+self.dim//2]
             if i+self.dim//2 > self.dim:
-                residual = i+self.dim//2 - self.dim # self.tokenized_length
+                residual = i+self.dim//2 - self.dim 
                 # loop around to first index
                 sliding_window = torch.cat((sliding_window, embedding[..., :residual]), dim=2)
             embedding_stack.append(sliding_window)
@@ -175,13 +175,14 @@ class ParallelNoninvertibleModel(nn.Module):
         elif self.route_method == 'unroll_embedding':
             client_input = encoder_outputs
             # unroll last obfuscated embedding and concat with all others
-            provider_input = torch.cat((self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n, :]), encoder_outputs[:, self.obfuscate_first_n:, :]), dim=1)
+            unrolled_embedding = self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n, :].unsqueeze(1))
+            provider_input = torch.cat((unrolled_embedding, encoder_outputs[:, self.obfuscate_first_n:, :]), dim=1)
 
         if self.provider_emb_compression > 1:
             prefix_provider_input = self.out_provider_proj(self.in_provider_proj(provider_input[:, :self.obfuscate_first_n, :]))
             provider_input = torch.cat((prefix_provider_input, provider_input[:, self.obfuscate_first_n:, :]), dim=1) # cat along token dim
 
-        if self.mask_obfuscated_tokens:
+        if self.mask_secret_tokens:
             provider_input = self.mask_obfuscated_tokens(provider_input)
 
         provider_output = self.provider_model(inputs_embeds=provider_input).last_hidden_state
