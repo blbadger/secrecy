@@ -178,7 +178,8 @@ class ParallelNoninvertibleModel(nn.Module):
             provider_input = torch.cat((self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n, :]), encoder_outputs[:, self.obfuscate_first_n:, :]), dim=1)
 
         if self.provider_emb_compression > 1:
-            provider_input = self.out_provider_proj(self.in_provider_proj(provider_input[:, :self.obfuscate_first_n, :]))
+            prefix_provider_input = self.out_provider_proj(self.in_provider_proj(provider_input[:, :self.obfuscate_first_n, :]))
+            provider_input = torch.cat((prefix_provider_input, provider_input[:, self.obfuscate_first_n:, :]), dim=1) # cat along token dim
 
         if self.mask_obfuscated_tokens:
             provider_input = self.mask_obfuscated_tokens(provider_input)

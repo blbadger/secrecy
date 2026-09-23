@@ -67,7 +67,7 @@ class LossLogger:
             for k in sorted(self.sums):
                 row[k] = (self.sums[k] / self.counts[k]).item()  # one device->host sync per row
             self.rows.append(row)
-            print(row)
+            tqdm.write(str(row))
             self.sums.clear()
             self.counts.clear()
 
@@ -461,7 +461,7 @@ if __name__ == '__main__':
     vocab_size = len(tokenizer)
     n_tokens_obfuscated = 128
     compress_provider_factor = 1
-    route_method = 'unroll_embedding'
+    route_method = 'embedding_split'
     model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
@@ -519,7 +519,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_noprovider_control_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_c4_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
