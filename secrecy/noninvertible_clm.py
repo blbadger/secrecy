@@ -230,8 +230,9 @@ class DualRootParallelModel(nn.Module):
         freeze_decoders=True, 
         clm_loss_only=False,
         parallel_encoder=None,
-        secret_decoder=None,
+        secret_encoder=None,
         provider_encoder=None,
+        unified_decoder=None,
         n_tokens_obfuscated=None,
         no_provider_modules=False,
         compress_secret_factor=1,
@@ -272,14 +273,14 @@ class DualRootParallelModel(nn.Module):
             param.requires_grad = True
         for _, param in self.unified_decoder.named_parameters():
             param.requires_grad = True
-        for _, param in self.provider_encoder.named_parameters():
+        for _, param in self.provider_model.named_parameters():
             param.requires_grad = True
 
         self.unroll_secret_embedding = unroll_secret_embedding
         if self.unroll_secret_embedding:
             self.unroll_projection = nn.Linear(dim//2, dim)
 
-        self.provider_emb_compression = compress_secret_factor
+        self.secret_emb_compression = compress_secret_factor
         if self.secret_emb_compression > 1:
             self.in_secret_proj = nn.Linear(dim, dim//self.secret_emb_compression)
             self.out_secret_proj = nn.Linear(dim//self.secret_emb_compression, dim)
@@ -331,8 +332,8 @@ class DualRootParallelModel(nn.Module):
 
         # assemble the provider input
         nonsecret_tokens = x[:, self.obfuscate_first_n:]
-        nonsecret_token_embeds = self.provider_model.wte(nonsecret_tokens)
-        provider_input = torch.cat((secret_embedding, nonsecret_token_embeds), dim=-1)
+        nonsecret_token_embeds = self.provider_model.embed_tokens(nonsecret_tokens)
+        provider_input = torch.cat((secret_embedding, nonsecret_token_embeds), dim=1)
 
         provider_output = self.provider_model(inputs_embeds=provider_input, attention_mask=attention_mask).last_hidden_state
         
@@ -343,7 +344,7 @@ class DualRootParallelModel(nn.Module):
         if self.no_provider_modules:
             combined_output = client_embedding # omits the provider modules, negative control
         else:
-            combined_output = cliend_embedding + provider_output
+            combined_output = client_embedding + provider_output
 
         clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
 

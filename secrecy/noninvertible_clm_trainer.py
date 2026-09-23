@@ -26,7 +26,7 @@ from peft import LoraConfig, TaskType, get_peft_model
 
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
-from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleModel
+from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleModel, DualRootParallelModel
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
 from accelerate import Accelerator
@@ -479,7 +479,7 @@ def init_dualroot_parallelmodel(
     config_kwargs = { 
         'hidden_size': decoder_dim,
         'intermediate_size': 4*decoder_dim,
-        'num_hidden_layers': unified_encoder_layers,
+        'num_hidden_layers': secret_encoder_layers,
         'num_attention_heads': n_heads,
         'vocab_size': vocab_size,
         'max_position_embeddings': context_length
@@ -526,7 +526,7 @@ def init_dualroot_parallelmodel(
     configuration = LlamaConfig(**config_kwargs)
     unified_decoder = LlamaModel(configuration)
 
-    model = ParallelNoninvertibleModel(
+    model = DualRootParallelModel(
         vocab_size, 
         decoder_dim, 
         provider_model, 
@@ -631,7 +631,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_parallelmodel_masked_control_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/parallelmodel_dualroot_nounroll_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
