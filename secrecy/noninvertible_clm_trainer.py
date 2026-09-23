@@ -244,14 +244,15 @@ def train_noninvertible_clm(
             else:
                 with accelerator.autocast() and torch.no_grad():
                     _, _, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
-
             
             if train_inverter:
                 toggle_grads(inverter, bool=True)
                 with accelerator.autocast():
                     # inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated]) with reduction
-                    inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)[:, :n_tokens_obfuscated] # only take the loss of the secret indices
-                    inverter_loss = torch.mean(inverter_loss)
+                    inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # only take the loss of the secret indices
+                    ignore_index = -100
+                    nonpad_tokens = labels[:, :n_tokens_obfuscated] != ignore_index
+                    inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
                 inverter_optimizer.zero_grad()
                 accelerator.backward(inverter_loss)
                 if accelerator.sync_gradients:
@@ -563,21 +564,21 @@ if __name__ == '__main__':
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
     n_tokens_obfuscated = 128
-    # compress_provider_factor = 1
-    # route_method = 'unroll_embedding'
-    # model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
+    compress_provider_factor = 1
+    route_method = 'unroll_embedding'
+    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
 
-    compress_secret_factor = 1
-    unroll_secret_embedding = False
-    mask_secret_tokens = False
-    model, inverter = init_dualroot_parallelmodel(
-        tokenizer, 
-        vocab_size, 
-        n_tokens_obfuscated, 
-        compress_secret_factor=compress_secret_factor, 
-        unroll_secret_embedding=unroll_secret_embedding,
-        mask_secret_tokens=mask_secret_tokens
-    )
+    #compress_secret_factor = 1
+    #unroll_secret_embedding = False
+    #mask_secret_tokens = False
+    #model, inverter = init_dualroot_parallelmodel(
+    #    tokenizer, 
+    #    vocab_size, 
+    #    n_tokens_obfuscated, 
+    #    compress_secret_factor=compress_secret_factor, 
+    #    unroll_secret_embedding=unroll_secret_embedding,
+    #    mask_secret_tokens=mask_secret_tokens
+    #)
 
 
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
@@ -636,7 +637,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/parallelmodel_dualroot_nounroll_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/parallelmodel_unroll_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir

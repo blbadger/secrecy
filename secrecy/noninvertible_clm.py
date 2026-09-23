@@ -187,7 +187,7 @@ class ParallelNoninvertibleModel(nn.Module):
 
         provider_output = self.provider_model(inputs_embeds=provider_input).last_hidden_state
         
-        inverter_input = provider_input[:, :, :] # [b t e], all provider inputs need to be used for inversion tests
+        inverter_input = provider_input # [b t e], all provider inputs need to be used for inversion tests
         inverted_output = self.inversion_decoder(inputs_embeds=inverter_input) # returns logits, not last hidden state
 
         parallel_x = self.parallel_encoder(inputs_embeds=client_input).last_hidden_state
@@ -206,7 +206,7 @@ class ParallelNoninvertibleModel(nn.Module):
             shift_logits = output[..., self.obfuscate_first_n:-1]
             shift_labels = labels.to(device)[..., self.obfuscate_first_n+1:]
             clm_loss = self.cel(shift_logits, shift_labels) 
-            inversion_loss = self.cel(inverted_output[:, :self.obfuscate_first_n], labels[:, :self.obfuscate_first_n])
+            inversion_loss = self.cel(inverted_output[..., :self.obfuscate_first_n], labels[..., :self.obfuscate_first_n])
         else:
             clm_loss = 0
             inversion_loss = 0

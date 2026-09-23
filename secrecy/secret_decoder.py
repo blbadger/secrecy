@@ -42,7 +42,7 @@ class SecretDecoder(nn.Module):
         
         self.tokenized_length = tokenized_length
         self.in_proj = None
-        if reduce_loss:
+        if not reduce_loss:
         	self.cel = nn.CrossEntropyLoss(reduction='none')
         else:
         	self.cel = nn.CrossEntropyLoss()
