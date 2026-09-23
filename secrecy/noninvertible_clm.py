@@ -217,3 +217,149 @@ class ParallelNoninvertibleModel(nn.Module):
             return clm_loss, inversion_loss, inverter_input
 
 
+class DualRootParallelModel(nn.Module):
+       
+    def __init__(self, 
+        n_vocab, 
+        dim, 
+        provider_model, 
+        inversion_decoder, 
+        inversion_head=None, 
+        clm_head=None, 
+        tokenized_length=512, 
+        freeze_decoders=True, 
+        clm_loss_only=False,
+        parallel_encoder=None,
+        secret_decoder=None,
+        provider_encoder=None,
+        n_tokens_obfuscated=None,
+        no_provider_modules=False,
+        compress_secret_factor=1,
+        unroll_secret_embedding=False,
+        mask_secret_tokens=False
+    ):
+        super().__init__()
+        self.cel = nn.CrossEntropyLoss()
+        self.tokenized_length = tokenized_length
+        if not n_tokens_obfuscated:
+            self.obfuscate_first_n = self.tokenized_length
+        else:
+            self.obfuscate_first_n = n_tokens_obfuscated
+
+        self.dim = dim
+        self.clm_head = clm_head
+        self.inversion_head = nn.Linear(dim, n_vocab)
+        self.clm_head = nn.Linear(dim, n_vocab)
+
+        self.inversion_decoder = inversion_decoder
+        
+        self.n_vocab = n_vocab
+        self.clm_head = nn.Linear(dim, n_vocab)
+        self.dim = dim
+
+        self.clm_loss_only = clm_loss_only
+        # for parallel modeling
+        self.secret_encoder = secret_encoder # LlamaModel
+        self.parallel_encoder = parallel_encoder # LlamaModel 
+        self.unified_decoder = unified_decoder # LlamaModel
+        self.provider_model = provider_model
+        self.no_provider_modules = no_provider_modules
+
+        for _, param in self.inversion_decoder.named_parameters():
+            param.requires_grad = False # inversion decoder is trained elsewhere
+
+        for _, param in self.parallel_encoder.named_parameters():
+            param.requires_grad = True
+        for _, param in self.unified_decoder.named_parameters():
+            param.requires_grad = True
+        for _, param in self.provider_encoder.named_parameters():
+            param.requires_grad = True
+
+        self.unroll_secret_embedding = unroll_secret_embedding
+        if self.unroll_secret_embedding:
+            self.unroll_projection = nn.Linear(dim//2, dim)
+
+        self.provider_emb_compression = compress_secret_factor
+        if self.secret_emb_compression > 1:
+            self.in_secret_proj = nn.Linear(dim, dim//self.secret_emb_compression)
+            self.out_secret_proj = nn.Linear(dim//self.secret_emb_compression, dim)
+
+        self.mask_secret_tokens = mask_secret_tokens
+        
+    def unroll_embedding(self, embedding):
+        embedding_stack = []
+        # sliding window unroll over hidden dim
+        for i in range(self.obfuscate_first_n):
+            i %= self.dim
+            sliding_window = embedding[..., i:i+self.dim//2]
+            if i+self.dim//2 > self.dim:
+                residual = i+self.dim//2 - self.dim 
+                # loop around to first index
+                sliding_window = torch.cat((sliding_window, embedding[..., :residual]), dim=2)
+            embedding_stack.append(sliding_window)
+        embedding = torch.cat(embedding_stack, dim=1)
+        embedding = self.unroll_projection(embedding)
+        return embedding
+
+    def mask_obfuscated_tokens(self, embeddings):
+        mask_embedding = torch.zeros((embeddings.shape[0], self.obfuscate_first_n, embeddings.shape[1])).to(embeddings.dtype).to(embeddings.device)
+        embeddings[:, :self.obfuscate_first_n, :] = mask_embedding # [b t e]
+        return embeddings
+
+    def forward(self, input_ids, labels=None, attention_mask=None):
+        x = input_ids.to(device)
+        secret_embedding = self.secret_encoder(input_ids=x[:, :self.obfuscate_first_n], attention_mask=attention_mask).last_hidden_state # shape [b t e]
+        client_embedding = self.parallel_encoder(input_ids=x, attention_mask=attention_mask).last_hidden_state # [b t e]
+
+        if self.unroll_secret_embedding:
+            client_input = encoder_outputs
+            # unroll last obfuscated embedding and concat with all others
+            unrolled_embedding = self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n, :].unsqueeze(1))
+            provider_input = torch.cat((unrolled_embedding, encoder_outputs[:, self.obfuscate_first_n:, :]), dim=1)
+
+        if self.secret_emb_compression > 1:
+            prefix_provider_input = self.out_provider_proj(self.in_provider_proj(provider_input[:, :self.obfuscate_first_n, :]))
+            provider_input = torch.cat((prefix_provider_input, provider_input[:, self.obfuscate_first_n:, :]), dim=1) # cat along token dim
+
+        if self.mask_secret_tokens:
+            prefix_mask = torch.zeros((input_ids.shape[0], self.obfuscate_first_n)).to(input_ids.device).to(input_ids.dtype)
+            if attention_mask:
+                attention_mask[:, :self.obfuscate_first_n] = prefix_mask
+            else:
+                attention_mask = torch.cat((prefix_mask, torch.ones((input_ids.shape[0], input_ids.shape[1]-self.obfuscate_first_n)).to(input_ids.device).to(input_ids.dtype)), dim=-1)
+            provider_input = self.mask_obfuscated_tokens(provider_input)
+
+        # assemble the provider input
+        nonsecret_tokens = x[:, self.obfuscate_first_n:]
+        nonsecret_token_embeds = self.provider_model.wte(nonsecret_tokens)
+        provider_input = torch.cat((secret_embedding, nonsecret_token_embeds), dim=-1)
+
+        provider_output = self.provider_model(inputs_embeds=provider_input, attention_mask=attention_mask).last_hidden_state
+        
+        # inverter input
+        inverter_input = secret_embedding
+        inverted_output = self.inversion_decoder(inputs_embeds=inverter_input) # returns logits, not last hidden state
+
+        if self.no_provider_modules:
+            combined_output = client_embedding # omits the provider modules, negative control
+        else:
+            combined_output = cliend_embedding + provider_output
+
+        clm_x = self.unified_decoder(inputs_embeds=combined_output).last_hidden_state
+
+        output = self.clm_head(clm_x)
+        output = rearrange(output, 'b t e -> b e t')
+
+        if labels is not None:
+            shift_logits = output[..., self.obfuscate_first_n:-1]
+            shift_labels = labels.to(device)[..., self.obfuscate_first_n+1:]
+            clm_loss = self.cel(shift_logits, shift_labels)
+            inversion_loss = self.cel(inverted_output, labels[:, :self.obfuscate_first_n])
+        else:
+            clm_loss = 0
+            inversion_loss = 0
+        
+        if self.clm_loss_only:
+            return clm_loss, encoder_embedding
+        else:
+            return clm_loss, inversion_loss, inverter_input
