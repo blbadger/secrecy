@@ -445,6 +445,104 @@ def init_noninvertible_parallelmodel(
     )
     return model, inverter
 
+def init_dualroot_parallelmodel(
+    tokenizer, 
+    vocab_size, 
+    n_tokens_obfuscated,
+    compress_secret_factor=1,
+    unroll_secret_embedding=False,
+    mask_secret_tokens=False,
+    context_length=512, 
+    decoder_dim=512, 
+    inverter_layers=8, 
+    secret_encoder_layers=3,
+    provider_model_layers=16, 
+    client_encoder_layers=3,
+    unified_decoder_layers=4,
+    n_heads=4
+    ):
+    # inversion model specification
+    config_kwargs = { 
+        'hidden_size': decoder_dim,
+        'intermediate_size': 4*decoder_dim,
+        'num_hidden_layers': inverter_layers,
+        'num_attention_heads': n_heads,
+        'vocab_size': vocab_size,
+        'max_position_embeddings': n_tokens_obfuscated
+    }
+
+    configuration = LlamaConfig(**config_kwargs)
+    model = LlamaForCausalLM(configuration)
+    inverter = SecretDecoder(vocab_size, decoder_dim, model)
+
+    # secret encoder specification
+    config_kwargs = { 
+        'hidden_size': decoder_dim,
+        'intermediate_size': 4*decoder_dim,
+        'num_hidden_layers': unified_encoder_layers,
+        'num_attention_heads': n_heads,
+        'vocab_size': vocab_size,
+        'max_position_embeddings': context_length
+    }
+
+    encoder_configuration = LlamaConfig(**config_kwargs)
+    secret_encoder = LlamaModel(encoder_configuration)
+
+    # client encoder specification
+    config_kwargs = { 
+        'hidden_size': decoder_dim,
+        'intermediate_size': 4*decoder_dim,
+        'num_hidden_layers': client_encoder_layers,
+        'num_attention_heads': n_heads,
+        'vocab_size': vocab_size,
+        'max_position_embeddings': context_length
+    }
+
+    configuration = LlamaConfig(**config_kwargs)
+    client_encoder = LlamaModel(configuration)
+
+    # provider model specification
+    config_kwargs = { 
+        'hidden_size': decoder_dim,
+        'intermediate_size': 4*decoder_dim,
+        'num_hidden_layers': provider_model_layers,
+        'num_attention_heads': n_heads,
+        'vocab_size': vocab_size,
+        'max_position_embeddings': context_length
+    }
+
+    configuration = LlamaConfig(**config_kwargs)
+    provider_model = LlamaModel(configuration)
+
+    # unified decoder model specification
+    config_kwargs = { 
+        'hidden_size': decoder_dim,
+        'intermediate_size': 4*decoder_dim,
+        'num_hidden_layers': unified_decoder_layers,
+        'num_attention_heads': n_heads,
+        'vocab_size': vocab_size,
+        'max_position_embeddings': context_length
+    }
+    configuration = LlamaConfig(**config_kwargs)
+    unified_decoder = LlamaModel(configuration)
+
+    model = ParallelNoninvertibleModel(
+        vocab_size, 
+        decoder_dim, 
+        provider_model, 
+        inverter, 
+        tokenized_length=context_length, 
+        clm_loss_only=False,
+        parallel_encoder=client_encoder,
+        unified_decoder=unified_decoder,
+        secret_encoder=secret_encoder,
+        n_tokens_obfuscated=n_tokens_obfuscated,
+        compress_secret_factor=compress_secret_factor,
+        unroll_secret_embedding=unroll_secret_embedding,
+        mask_secret_tokens=mask_secret_tokens
+    )
+    return model, inverter
+
 
 if __name__ == '__main__':
     warnings.filterwarnings(action='ignore')
@@ -460,10 +558,23 @@ if __name__ == '__main__':
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
     n_tokens_obfuscated = 128
-    compress_provider_factor = 1
-    route_method = 'unroll_embedding'
-    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
-    model.mask_secret_tokens=True
+    # compress_provider_factor = 1
+    # route_method = 'unroll_embedding'
+    # model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
+
+    compress_secret_factor = 1
+    unroll_secret_embedding = False
+    mask_secret_tokens = False
+    model, inverter = init_dualroot_parallelmodel(
+        tokenizer, 
+        vocab_size, 
+        n_tokens_obfuscated, 
+        compress_secret_factor=compress_secret_factor, 
+        unroll_secret_embedding=unroll_secret_embedding,
+        mask_secret_tokens=mask_secret_tokens
+    )
+
+
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
 
@@ -544,5 +655,7 @@ if __name__ == '__main__':
         checkpoint_dir=checkpoint_dir,
         steps=num_steps,
         train_clm = True,
+        train_inverter=True,
+        train_for_noninv=True,
         n_tokens_obfuscated=n_tokens_obfuscated
     )
