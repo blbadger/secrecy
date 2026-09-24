@@ -170,7 +170,10 @@ def evaluate_noninvertibility(
         running_clm_loss += noninvertible_clm_loss.detach()
 
         with accelerator.autocast():
-            inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels[:, :n_tokens_obfuscated])
+            inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
+        ignore_index = -100
+        nonpad_tokens = labels[:, :n_tokens_obfuscated] != ignore_index
+        inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
         running_inverter_loss += inverter_loss.detach()
 
     if accelerator.is_main_process:
