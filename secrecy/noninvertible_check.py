@@ -25,7 +25,7 @@ from tqdm import tqdm
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
 from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleModel
-from noninvertible_clm_trainer import init_noninvertible_parallelmodel, init_noninvertible_transformer, unwrap_state_dict, load_checkpoint, toggle_grads, train_noninvertible_clm
+from noninvertible_clm_trainer import init_noninvertible_parallelmodel, init_noninvertible_transformer, init_dualroot_parallelmodel, unwrap_state_dict, load_checkpoint, toggle_grads, train_noninvertible_clm
 
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
@@ -59,11 +59,24 @@ tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
 
 n_tokens_obfuscated = 128
-compress_provider_factor=1
-model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor)
+#compress_provider_factor=1
+#model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor)
+
+compress_secret_factor = 1
+unroll_secret_embedding = False
+mask_secret_tokens = False
+model, inverter = init_dualroot_parallelmodel(
+        tokenizer, 
+        vocab_size, 
+        n_tokens_obfuscated, 
+        compress_secret_factor=compress_secret_factor, 
+        unroll_secret_embedding=unroll_secret_embedding,
+        mask_secret_tokens=mask_secret_tokens
+    )
+
 
 # load_model, train inverter from scratch (model remains frozen)
-model_checkpoint_path = f"{checkpoint_root}/noninvertible_parallelmodel_c4_b32x4/step_100000/clm_model.safetensors"
+model_checkpoint_path = f"{checkpoint_root}/parallelmodel_dualroot_nounroll_b32x4/step_200000/clm_model.safetensors"
 model_state_dict = load_file(model_checkpoint_path)
 # deals with unwrapped modules
 remapped_state_dict = {remap_keys(k): v for k, v in model_state_dict.items()}
@@ -125,7 +138,7 @@ model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dat
 loss_fn = torch.nn.CrossEntropyLoss()
 
 n_devices = accelerator.num_processes
-checkpoint_dir = f"{data_root}/noninvertible_check_b{batch_size}x{n_devices}"
+checkpoint_dir = f"{data_root}/noninvertible_check_dualroot_nounroll_b{batch_size}x{n_devices}"
 print ('Model loaded, inverter initialized, training inverter only')
 
 train_noninvertible_clm(

@@ -175,7 +175,7 @@ class ParallelNoninvertibleModel(nn.Module):
         elif self.route_method == 'unroll_embedding':
             client_input = encoder_outputs
             # unroll last obfuscated embedding and concat with all others
-            unrolled_embedding = self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n, :].unsqueeze(1))
+            unrolled_embedding = self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n-1, :].unsqueeze(1))
             provider_input = torch.cat((unrolled_embedding, encoder_outputs[:, self.obfuscate_first_n:, :]), dim=1)
 
         if self.provider_emb_compression > 1:
@@ -313,10 +313,9 @@ class DualRootParallelModel(nn.Module):
         client_embedding = self.parallel_encoder(input_ids=x, attention_mask=attention_mask).last_hidden_state # [b t e]
 
         if self.unroll_secret_embedding:
-            client_input = encoder_outputs
             # unroll last obfuscated embedding and concat with all others
-            unrolled_embedding = self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n, :].unsqueeze(1))
-            provider_input = torch.cat((unrolled_embedding, encoder_outputs[:, self.obfuscate_first_n:, :]), dim=1)
+            unrolled_embedding = self.unroll_embedding(secret_embedding[:, self.obfuscate_first_n-1, :].unsqueeze(1))
+            secret_embedding = unrolled_embedding
 
         if self.secret_emb_compression > 1:
             prefix_provider_input = self.out_provider_proj(self.in_provider_proj(provider_input[:, :self.obfuscate_first_n, :]))
