@@ -206,16 +206,19 @@ def evaluate_noninvertibility(
         running_clm_loss += noninvertible_clm_loss.detach()
 
         with accelerator.autocast():
-            inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
-        ignore_index = -100
-        secret_labels = labels[:, :n_tokens_obfuscated]
-        nonpad_tokens = secret_labels != ignore_index
-        inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
+            ignore_index = - 100 
+            nonpad_tokens = labels[:, :n_tokens_obfuscated] != ignore_index
+            if isinstance(noninvertible_clm._orig_mod.module, DualRootParallelModel):
+                inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
+            else:
+                inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
+                inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
+
         running_inverter_loss += inverter_loss.detach()
 
         # token-level accuracy of the inverter's secret-token predictions
         inverter_preds = inverter_logits[:, :n_tokens_obfuscated].argmax(dim=-1)
-        running_inverter_correct += ((inverter_preds == secret_labels) & nonpad_tokens).sum().detach()
+        running_inverter_correct += ((inverter_preds == labels[:, :n_tokens_obfuscated]) & nonpad_tokens).sum().detach()
         running_inverter_total += nonpad_tokens.sum().detach()
 
     eval_inverter_accuracy = (running_inverter_correct / running_inverter_total).item() if running_inverter_total > 0 else float('nan')
