@@ -121,6 +121,14 @@ def toggle_grads(module, bool=True):
         param.requires_grad = bool
     return
 
+def unwrap_model(model):
+    unwrapped_model = model
+    if hasattr(unwrapped_model, "_orig_mod"):
+        unwrapped_model = unwrapped_model._orig_mod
+        if hasattr(unwrapped_model, "module"):
+            unwrapped_model = unwrapped_model.module
+    return unwrapped_model
+
 def save_checkpoint(
         accelerator, 
         model, 
@@ -206,26 +214,30 @@ def evaluate_noninvertibility(
         running_clm_loss += noninvertible_clm_loss.detach()
 
         with accelerator.autocast():
-            inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
-        ignore_index = -100
-        secret_labels = labels[:, :n_tokens_obfuscated]
-        nonpad_tokens = secret_labels != ignore_index
-        inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
+            ignore_index = -100 
+            nonpad_tokens = labels[:, :n_tokens_obfuscated] != ignore_index
+
+            if isinstance(unwrap_model(noninvertible_clm), DualRootParallelModel):
+                inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
+            else:
+                inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
+                inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
+
         running_inverter_loss += inverter_loss.detach()
 
         # token-level accuracy of the inverter's secret-token predictions
         inverter_preds = inverter_logits[:, :n_tokens_obfuscated].argmax(dim=-1)
-        running_inverter_correct += ((inverter_preds == secret_labels) & nonpad_tokens).sum().detach()
+        running_inverter_correct += ((inverter_preds == labels[:, :n_tokens_obfuscated]) & nonpad_tokens).sum().detach()
         running_inverter_total += nonpad_tokens.sum().detach()
 
     eval_inverter_accuracy = (running_inverter_correct / running_inverter_total).item() if running_inverter_total > 0 else float('nan')
 
     if accelerator.is_main_process:
-        eval_inverter_loss = round(float(running_inverter_loss)/len(test_dataloader), 4)
-        eval_clm_loss = round(float(running_clm_loss)/len(test_dataloader), 4)
+        eval_inverter_loss = round(float(running_inverter_loss)/len(test_dataloader), 8)
+        eval_clm_loss = round(float(running_clm_loss)/len(test_dataloader), 8)
         tqdm.write(f'Step {step} Evaluation Inverter loss: {eval_inverter_loss}') 
         tqdm.write(f'Step {step} Evaluation CausalLM Loss: {eval_clm_loss}')
-        tqdm.write(f'Step {step} Evaluation Inverter accuracy: {round(eval_inverter_accuracy, 4)}')
+        tqdm.write(f'Step {step} Evaluation Inverter accuracy: {round(eval_inverter_accuracy, 8)}')
         if eval_logger is not None:
             eval_logger.log(
                 step,
@@ -311,13 +323,14 @@ def train_noninvertible_clm(
             if train_inverter:
                 toggle_grads(inverter, bool=True)
                 with accelerator.autocast():
-                    if isinstance(noninvertible_clm._orig_mod.module, DualRootParallelModel):
+                    if isinstance(unwrap_model(noninvertible_clm), DualRootParallelModel):
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
                     else:
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
-                        ignore_index = - 100
+                        ignore_index = -100
                         nonpad_tokens = labels[:, :n_tokens_obfuscated] != ignore_index
                         inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
+                        
                 inverter_optimizer.zero_grad()
                 accelerator.backward(inverter_loss)
                 inverter_grad_norm = None
