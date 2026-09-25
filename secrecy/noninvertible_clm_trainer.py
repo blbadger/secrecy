@@ -311,11 +311,13 @@ def train_noninvertible_clm(
             if train_inverter:
                 toggle_grads(inverter, bool=True)
                 with accelerator.autocast():
-                    # inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated]) with reduction
-                    inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # only take the loss of the secret indices
-                    ignore_index = -100
-                    nonpad_tokens = labels[:, :n_tokens_obfuscated] != ignore_index
-                    inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
+                    if isinstance(noninvertible_clm._orig_mod.module, DualRootParallelModel):
+                        inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
+                    else:
+                        inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
+                        ignore_index = - 100
+                        nonpad_tokens = labels[:, :n_tokens_obfuscated] != ignore_index
+                        inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
                 inverter_optimizer.zero_grad()
                 accelerator.backward(inverter_loss)
                 inverter_grad_norm = None
@@ -682,7 +684,7 @@ if __name__ == '__main__':
     inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
 
     num_steps = 200000
-    num_training_steps = total_training_steps * num_gpus # num_gpu steps taken for each 
+    total_training_steps = num_steps * num_gpus # num_gpu steps taken for each 
 
     model_scheduler = get_linear_schedule_with_warmup(
         model_optimizer,
@@ -739,5 +741,14 @@ if __name__ == '__main__':
         inverter_optimizer, 
         loss_fn,
         accelerator,
-        tokenizer
-    )
+        tokenizer=tokenizer,
+        clm_scheduler=model_scheduler, 
+        inverter_scheduler=inverter_scheduler, 
+        checkpoint_dir=checkpoint_dir,
+        steps=num_steps,
+        train_clm = True,
+        train_inverter=True,
+        train_for_noninv=True,
+        n_tokens_obfuscated=n_tokens_obfuscated
+    )   
+
