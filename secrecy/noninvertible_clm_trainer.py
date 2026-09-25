@@ -83,6 +83,39 @@ class LossLogger:
         os.replace(tmp, path)
 
 
+class EvalLogger:
+    """Records one row per evaluation call (no windowing, since eval already happens
+    infrequently). Written into each checkpoint directory the same way as LossLogger.
+    """
+
+    def __init__(self, enabled=True, resume_path=None):
+        self.enabled = enabled
+        self.rows = []
+        if enabled and resume_path and os.path.exists(resume_path):
+            with open(resume_path) as f:
+                self.rows = [json.loads(line) for line in f if line.strip()]
+
+    def log(self, step, **metrics):
+        if not self.enabled:
+            return
+        row = {"step": step}
+        for k, v in metrics.items():
+            v = torch.as_tensor(v).detach().float().item() if torch.is_tensor(v) else float(v)
+            row[k] = v
+        self.rows.append(row)
+        tqdm.write(str(row))
+
+    def save(self, path):
+        if not self.enabled:
+            return
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            for row in self.rows:
+                f.write(json.dumps(row) + "\n")
+        os.replace(tmp, path)
+
+
 def toggle_grads(module, bool=True):
     for _, param in module.named_parameters():
         param.requires_grad = bool
@@ -158,10 +191,13 @@ def evaluate_noninvertibility(
         test_dataloader, 
         n_tokens_obfuscated, 
         tokenizer, 
-        accelerator
+        accelerator,
+        eval_logger=None,
     ):
     running_clm_loss = 0
     running_inverter_loss = 0
+    running_inverter_correct = 0
+    running_inverter_total = 0
     for i, batch in enumerate(test_dataloader):
         inputs, labels = torch.stack(batch['input_ids'], dim=0).T, torch.stack(batch['input_ids'], dim=0).T
         labels = torch.where(labels==tokenizer.pad_token_id, -100, labels) # mask pad token losses
@@ -170,15 +206,33 @@ def evaluate_noninvertibility(
         running_clm_loss += noninvertible_clm_loss.detach()
 
         with accelerator.autocast():
-            inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
+            inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
         ignore_index = -100
-        nonpad_tokens = labels[:, :n_tokens_obfuscated] != ignore_index
+        secret_labels = labels[:, :n_tokens_obfuscated]
+        nonpad_tokens = secret_labels != ignore_index
         inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
         running_inverter_loss += inverter_loss.detach()
 
+        # token-level accuracy of the inverter's secret-token predictions
+        inverter_preds = inverter_logits[:, :n_tokens_obfuscated].argmax(dim=-1)
+        running_inverter_correct += ((inverter_preds == secret_labels) & nonpad_tokens).sum().detach()
+        running_inverter_total += nonpad_tokens.sum().detach()
+
+    eval_inverter_accuracy = (running_inverter_correct / running_inverter_total).item() if running_inverter_total > 0 else float('nan')
+
     if accelerator.is_main_process:
-        tqdm.write(f'Step {step} Evaluation Inverter loss: {round(float(running_inverter_loss)/len(test_dataloader), 4)}') 
-        tqdm.write(f'Step {step} Evaluation CausalLM Loss: {round(float(running_clm_loss)/len(test_dataloader), 4)}')
+        eval_inverter_loss = round(float(running_inverter_loss)/len(test_dataloader), 4)
+        eval_clm_loss = round(float(running_clm_loss)/len(test_dataloader), 4)
+        tqdm.write(f'Step {step} Evaluation Inverter loss: {eval_inverter_loss}') 
+        tqdm.write(f'Step {step} Evaluation CausalLM Loss: {eval_clm_loss}')
+        tqdm.write(f'Step {step} Evaluation Inverter accuracy: {round(eval_inverter_accuracy, 4)}')
+        if eval_logger is not None:
+            eval_logger.log(
+                step,
+                eval_clm_loss=eval_clm_loss,
+                eval_inverter_loss=eval_inverter_loss,
+                eval_inverter_accuracy=eval_inverter_accuracy,
+            )
     return
 
 
@@ -214,6 +268,10 @@ def train_noninvertible_clm(
         # when resuming, pick up the log stored in the checkpoint we resume from
         resume_path=os.path.join(checkpoint_dir, f"step_{start_step}", "loss_log.jsonl") if start_step else None,
     )
+    eval_logger = EvalLogger(
+        enabled=accelerator.is_main_process,
+        resume_path=os.path.join(checkpoint_dir, f"step_{start_step}", "eval_log.jsonl") if start_step else None,
+    )
     toggle_grads(inverter, bool=False)
     global_step = start_step
     pbar = tqdm(total=steps, initial=global_step, desc='global step')
@@ -221,6 +279,7 @@ def train_noninvertible_clm(
         for i, batch in enumerate(train_dataloader):
             if global_step > steps:
                 logger.save(os.path.join(checkpoint_dir, "loss_log.jsonl"))  # final log
+                eval_logger.save(os.path.join(checkpoint_dir, "eval_log.jsonl"))
                 return
             global_step += 1
             if accelerator.is_main_process:
@@ -238,9 +297,10 @@ def train_noninvertible_clm(
                 noninvertible_clm_optimizer.zero_grad()
                 accelerator.backward(total_noninv_loss)
 
-                # TODO: define running grad norm
+                clm_grad_norm = None
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(noninvertible_clm.parameters(), max_grad_norm)
+                    clm_grad_norm = accelerator.clip_grad_norm_(noninvertible_clm.parameters(), max_grad_norm)
+                clm_lr = noninvertible_clm_optimizer.param_groups[0]["lr"]
                 noninvertible_clm_optimizer.step()
                 if accelerator.sync_gradients:
                     clm_scheduler.step()
@@ -258,24 +318,33 @@ def train_noninvertible_clm(
                     inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
                 inverter_optimizer.zero_grad()
                 accelerator.backward(inverter_loss)
+                inverter_grad_norm = None
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(inverter.parameters(), max_grad_norm)
+                    inverter_grad_norm = accelerator.clip_grad_norm_(inverter.parameters(), max_grad_norm)
+                inverter_lr = inverter_optimizer.param_groups[0]["lr"]
                 inverter_optimizer.step()
                 if accelerator.sync_gradients:
                     inverter_scheduler.step()
             else:
                 inverter_loss = 0
+                inverter_grad_norm = None
+                inverter_lr = inverter_optimizer.param_groups[0]["lr"]
             
             toggle_grads(inverter, bool=False)
 
             # accumulate losses; a window-averaged row is recorded every `log_every` steps
-            step_losses = {"inverter_loss": inverter_loss}
+            step_losses = {"inverter_loss": inverter_loss, "inverter_lr": inverter_lr}
+            if inverter_grad_norm is not None:
+                step_losses["inverter_grad_norm"] = inverter_grad_norm
             if train_clm:
                 step_losses.update(
                     clm_loss=noninvertible_clm_loss,
                     inversion_loss=noninvertible_inversion_loss,
                     total_noninv_loss=total_noninv_loss,
+                    clm_lr=clm_lr,
                 )
+                if clm_grad_norm is not None:
+                    step_losses["clm_grad_norm"] = clm_grad_norm
             logger.log(global_step, **step_losses)
 
             if global_step % save_every == 0:
@@ -291,8 +360,20 @@ def train_noninvertible_clm(
                         os.path.join(checkpoint_dir, f"step_{global_step}")
                     )
                 logger.save(os.path.join(checkpoint_dir, f"step_{global_step}", "loss_log.jsonl"))
+                eval_logger.save(os.path.join(checkpoint_dir, f"step_{global_step}", "eval_log.jsonl"))
             if global_step % evaluate_every == 0:
-                evaluate_noninvertibility(global_step, noninvertible_clm, inverter, test_dataloader, n_tokens_obfuscated, tokenizer, accelerator)
+                evaluate_noninvertibility(
+                    global_step,
+                    noninvertible_clm,
+                    inverter,
+                    test_dataloader,
+                    n_tokens_obfuscated,
+                    tokenizer,
+                    accelerator,
+                    eval_logger=eval_logger,
+                )
+                noninvertible_clm.train()
+                inverter.train()
     return
 
 def unwrap_state_dict(state_dict):
@@ -601,7 +682,7 @@ if __name__ == '__main__':
     inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
 
     num_steps = 200000
-    total_training_steps = num_steps
+    num_training_steps = total_training_steps * num_gpus # num_gpu steps taken for each 
 
     model_scheduler = get_linear_schedule_with_warmup(
         model_optimizer,
@@ -658,13 +739,5 @@ if __name__ == '__main__':
         inverter_optimizer, 
         loss_fn,
         accelerator,
-        tokenizer=tokenizer,
-        clm_scheduler=model_scheduler, 
-        inverter_scheduler=inverter_scheduler, 
-        checkpoint_dir=checkpoint_dir,
-        steps=num_steps,
-        train_clm = True,
-        train_inverter=False,
-        train_for_noninv=False,
-        n_tokens_obfuscated=n_tokens_obfuscated
+        tokenizer
     )
