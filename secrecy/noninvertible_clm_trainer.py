@@ -330,7 +330,7 @@ def train_noninvertible_clm(
                         ignore_index = -100
                         nonpad_tokens = labels[:, :n_tokens_obfuscated] != ignore_index
                         inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
-                        
+
                 inverter_optimizer.zero_grad()
                 accelerator.backward(inverter_loss)
                 inverter_grad_norm = None
@@ -467,19 +467,17 @@ def init_noninvertible_parallelmodel(
     unified_decoder_layers=4,
     n_heads=4
     ):
-    # inversion model specification
-    config_kwargs = { 
+    # inversion model specification: must be bidirectional if the input token indices are not reversed
+    config_kwargs = {
         'hidden_size': decoder_dim,
-        'intermediate_size': 4*decoder_dim,
+        'intermediate_size': 4 * decoder_dim,
         'num_hidden_layers': inverter_layers,
         'num_attention_heads': n_heads,
         'vocab_size': vocab_size,
-        'max_position_embeddings': n_tokens_obfuscated,
-        'is_causal': False
+        'max_position_embeddings': context_length,
     }
-
-    configuration = LlamaConfig(**config_kwargs)
-    model = LlamaForCausalLM(configuration)
+    configuration = BertConfig(**config_kwargs)
+    model = BertForMaskedLM(configuration)
     inverter = SecretDecoder(vocab_size, decoder_dim, model, reduce_loss=False)
 
     # unified encoder specification
