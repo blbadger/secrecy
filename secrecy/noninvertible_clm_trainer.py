@@ -9,7 +9,7 @@ from transformers import AutoTokenizer
 
 from datasets import load_dataset, load_from_disk, concatenate_datasets
 import transformers
-from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig, LlamaForCausalLM, LlamaModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig, LlamaForCausalLM, LlamaModel, BertConfig, BertForMaskedLM
 from prettytable import PrettyTable
 from safetensors.torch import save_file, load_model
 from safetensors import safe_open
