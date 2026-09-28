@@ -63,7 +63,7 @@ n_tokens_obfuscated = 128
 #model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor)
 
 compress_secret_factor = 1
-unroll_secret_embedding = False
+unroll_secret_embedding = True
 mask_secret_tokens = False
 model, inverter = init_dualroot_parallelmodel(
         tokenizer, 
@@ -73,14 +73,15 @@ model, inverter = init_dualroot_parallelmodel(
         unroll_secret_embedding=unroll_secret_embedding,
         mask_secret_tokens=mask_secret_tokens
     )
-
+original_inverter_state = inverter.state_dict()
 
 # load_model, train inverter from scratch (model remains frozen)
-model_checkpoint_path = f"{checkpoint_root}/parallelmodel_dualroot_nounroll_b32x4/step_200000/clm_model.safetensors"
+model_checkpoint_path = f"{checkpoint_root}/parallelmodel_dualroot_unroll_noni_b32x4/step_200000/clm_model.safetensors"
 model_state_dict = load_file(model_checkpoint_path)
 # deals with unwrapped modules
 remapped_state_dict = {remap_keys(k): v for k, v in model_state_dict.items()}
 model.load_state_dict(remapped_state_dict, strict=True)
+inverter.load_state_dict(original_inverter_state) # ensure that the inverter is initialized from scratch
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
@@ -138,7 +139,7 @@ model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dat
 loss_fn = torch.nn.CrossEntropyLoss()
 
 n_devices = accelerator.num_processes
-checkpoint_dir = f"{data_root}/noninvertible_check_dualroot_nounroll_b{batch_size}x{n_devices}"
+checkpoint_dir = f"{data_root}/noninvertible_check_dualroot_unroll_noni_b{batch_size}x{n_devices}"
 print ('Model loaded, inverter initialized, training inverter only')
 
 train_noninvertible_clm(
