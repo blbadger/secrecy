@@ -318,10 +318,10 @@ class DualRootParallelModel(nn.Module):
             secret_embedding = unrolled_embedding
 
         if self.secret_emb_compression > 1:
-            prefix_provider_input = self.out_provider_proj(self.in_provider_proj(provider_input[:, :self.obfuscate_first_n, :]))
-            provider_input = torch.cat((prefix_provider_input, provider_input[:, self.obfuscate_first_n:, :]), dim=1) # cat along token dim
+            secret_embedding = self.out_secret_proj(self.in_secret_proj(secret_embedding[:, :self.obfuscate_first_n, :]))
 
         if self.mask_secret_tokens:
+            # TODO: output blank secret input
             prefix_mask = torch.zeros((input_ids.shape[0], self.obfuscate_first_n)).to(input_ids.device).to(input_ids.dtype)
             if attention_mask:
                 attention_mask[:, :self.obfuscate_first_n] = prefix_mask
