@@ -23,7 +23,9 @@ class PostRedactionModel(nn.Module):
         n_vocab=8000,
         n_heads=4,
         no_redaction=False,
-        user_embedding_only=False
+        user_embedding_only=False,
+        mask_redaction_attention=False,
+        skip_first_n_loss=None
         ):
         super().__init__()
 
@@ -49,15 +51,23 @@ class PostRedactionModel(nn.Module):
             self.layernorm = nn.LayerNorm(dim)
         self.no_redaction = no_redaction
         self.user_embedding_only = user_embedding_only
+        self.skip_first_n_loss = skip_first_n_loss
+        self.mask_redaction_attention = mask_redaction_attention
 
     def forward(self, input_ids, labels=None, attention_mask=None, redactions=None):
 
         if self.no_redaction:
             provider_input_ids = input_ids.to(device)
         else:
-            # replace non-pad tokens with redaction token
+            # replace non-pad tokens with redaction token when redactions==1, ignore for redactions==0
             redactions &= labels >= 0
             provider_input_ids = torch.where(redactions==1, self.redaction_token, input_ids).to(device)
+
+            if self.mask_redaction_attention:
+                if attention_mask is None:
+                    attention_mask = torch.ones(input_ids.shape).to(input_ids.device).to(input_ids.dtype)
+                redaction_mask = (redactions - 1)*-1 # inverts 0/1 redactions to make 1 unredacted and 0 redacted
+                attention_mask &= redactions # apply mask
 
         user_input_ids = input_ids.to(device)
         provider_embeddings = self.provider_encoder(provider_input_ids).last_hidden_state
@@ -85,6 +95,10 @@ class PostRedactionModel(nn.Module):
         if labels is not None:
             shift_labels = labels[..., 1:]
             shift_logits = logits[..., :-1]
+            if self.skip_first_n_loss:
+                shift_logits = shift_logits[..., skip_first_loss:]
+                shift_labels = shift_labels[..., skip_first_loss:]
+
             loss = self.cel(shift_logits, shift_labels)
         else:
             loss = 0
