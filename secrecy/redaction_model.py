@@ -96,8 +96,8 @@ class PostRedactionModel(nn.Module):
             shift_labels = labels[..., 1:]
             shift_logits = logits[..., :-1]
             if self.skip_first_n_loss:
-                shift_logits = shift_logits[..., skip_first_loss:]
-                shift_labels = shift_labels[..., skip_first_loss:]
+                shift_logits = shift_logits[..., self.skip_first_n_loss:]
+                shift_labels = shift_labels[..., self.skip_first_n_loss:]
 
             loss = self.cel(shift_logits, shift_labels)
         else:
