@@ -665,9 +665,9 @@ if __name__ == '__main__':
     #route_method = 'unroll_embedding'
     #model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
 
-    compress_secret_factor = 4
-    unroll_secret_embedding = False
-    mask_secret_tokens = False
+    compress_secret_factor = 1
+    unroll_secret_embedding = True
+    mask_secret_tokens = True
     model, inverter = init_dualroot_parallelmodel(
         tokenizer, 
         vocab_size, 
@@ -734,7 +734,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/parallelmodel_dualroot_embedding_split_c4_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/parallelmodel_dualroot_masked_unrolled_embedding_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -758,8 +758,8 @@ if __name__ == '__main__':
         checkpoint_dir=checkpoint_dir,
         steps=num_steps,
         train_clm = True,
-        train_inverter=True,
-        train_for_noninv=True,
+        train_inverter = False,
+        train_for_noninv = False,
         n_tokens_obfuscated=n_tokens_obfuscated
     )   
 
