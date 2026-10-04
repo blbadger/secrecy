@@ -33,7 +33,7 @@ def add_random_redactions(example, weights=[0.6, 0.4]):
 	example['redactions'] = redaction_tensor
 	return example
 
-def add_prefix_redactions(example, tokens_redacted=128):
+def add_prefix_redactions(example, tokens_redacted=256):
 	input_length = len(example['input_ids'])
 	example['redactions'] = torch.cat((torch.ones(tokens_redacted), torch.zeros(input_length-tokens_redacted))).to(torch.long)
 	return example
@@ -103,9 +103,9 @@ model = PostRedactionModel(
 	tokenized_length=context_length,
 	dim=decoder_dim,
 	n_vocab=vocab_size,
-	no_redaction=True,
+	no_redaction=False,
 	mask_redaction_attention=True,
-	skip_first_n_loss=128
+	skip_first_n_loss=256
 	)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
@@ -116,8 +116,8 @@ datasets.config.IN_MEMORY_MAX_SIZE = 0
 train_dataset = load_from_disk(train_path)
 test_dataset = load_from_disk(test_path)
 
-# train_dataset = train_dataset.map(add_prefix_redactions, num_proc=16)
-# test_dataset = test_dataset.map(add_prefix_redactions, num_proc=16)
+train_dataset = train_dataset.map(add_prefix_redactions, num_proc=16)
+test_dataset = test_dataset.map(add_prefix_redactions, num_proc=16)
 print (train_dataset[0], test_dataset[0])
 
 global_batch_size = 128
@@ -129,7 +129,7 @@ if torch.cuda.is_available():
 batch_size = global_batch_size // n_devices
 
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_norefix_redaction_attnmasked_128l\
+output_dir = f'{checkpoint_root}/fineweb_prefix_redaction_attnmasked_256l\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
