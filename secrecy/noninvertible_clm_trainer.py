@@ -226,7 +226,8 @@ def evaluate_noninvertibility(
         running_inverter_loss += inverter_loss.detach()
 
         # token-level accuracy of the inverter's secret-token predictions
-        inverter_preds = inverter_logits[:, :n_tokens_obfuscated].argmax(dim=-1)
+        # inverter_logits are [b e t]
+        inverter_preds = inverter_logits[:, :, :n_tokens_obfuscated].argmax(dim=1) # only take secret tokens, argmax on embedding (logit) dim
         running_inverter_correct += ((inverter_preds == labels[:, :n_tokens_obfuscated]) & nonpad_tokens).sum().detach()
         running_inverter_total += nonpad_tokens.sum().detach()
 
