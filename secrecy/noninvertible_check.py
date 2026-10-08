@@ -62,7 +62,8 @@ n_tokens_obfuscated = 128
 compress_provider_factor=4
 route_method='embedding_split'
 model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
-original_inverter_state = inverter.state_dict()
+
+riginal_inverter_state = inverter.state_dict()
 #compress_secret_factor = 1
 #unroll_secret_embedding = False
 #mask_secret_tokens = False
@@ -144,6 +145,12 @@ n_devices = accelerator.num_processes
 checkpoint_dir = f"{data_root}/noninvertible_check_split_s128_c4_b{batch_size}x{n_devices}"
 print ('Model loaded, inverter initialized, training inverter only')
 
+# save driver code snapshot in checkpoint dir
+code_path = os.path.abspath(__file__)
+if not os.path.isdir(output_dir):
+    os.mkdir(output_dir)
+shutil.copy(code_path, output_dir)
+
 train_noninvertible_clm(
     train_dataloader, 
     test_dataloader, 
@@ -156,7 +163,7 @@ train_noninvertible_clm(
     tokenizer=tokenizer,
     clm_scheduler=model_scheduler, 
     inverter_scheduler=inverter_scheduler, 
-    checkpoint_dir=checkpoint_dir,
+    checkpoint_dir=output_dir,
     steps=num_steps,
     train_clm = False,
     n_tokens_obfuscated=n_tokens_obfuscated

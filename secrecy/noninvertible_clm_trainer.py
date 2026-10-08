@@ -226,7 +226,8 @@ def evaluate_noninvertibility(
         running_inverter_loss += inverter_loss.detach()
 
         # token-level accuracy of the inverter's secret-token predictions
-        inverter_preds = inverter_logits[:, :n_tokens_obfuscated].argmax(dim=-1)
+        # inverter_logits are [b e t]
+        inverter_preds = inverter_logits[:, :, :n_tokens_obfuscated].argmax(dim=1) # only take secret tokens, argmax on embedding (logit) dim
         running_inverter_correct += ((inverter_preds == labels[:, :n_tokens_obfuscated]) & nonpad_tokens).sum().detach()
         running_inverter_total += nonpad_tokens.sum().detach()
 
@@ -660,7 +661,6 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
-    n_tokens_obfuscated = 384
     compress_provider_factor = 1
     route_method = 'unroll_embedding'
     model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
