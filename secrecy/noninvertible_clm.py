@@ -184,9 +184,8 @@ class ParallelNoninvertibleModel(nn.Module):
 
         if self.mask_secret_tokens:
             provider_input = self.mask_obfuscated_tokens(provider_input)
-
-        provider_output = self.provider_model(inputs_embeds=provider_input).last_hidden_state
         
+        provider_output = self.provider_model(inputs_embeds=provider_input).last_hidden_state
         inverter_input = provider_input # [b t e], all provider inputs need to be used for inversion tests
         inverted_output = self.inversion_decoder(inputs_embeds=inverter_input) # returns logits, not last hidden state
 
@@ -318,10 +317,10 @@ class DualRootParallelModel(nn.Module):
             secret_embedding = unrolled_embedding
 
         if self.secret_emb_compression > 1:
-            prefix_provider_input = self.out_provider_proj(self.in_provider_proj(provider_input[:, :self.obfuscate_first_n, :]))
-            provider_input = torch.cat((prefix_provider_input, provider_input[:, self.obfuscate_first_n:, :]), dim=1) # cat along token dim
+            secret_embedding = self.out_secret_proj(self.in_secret_proj(secret_embedding[:, :self.obfuscate_first_n, :]))
 
         if self.mask_secret_tokens:
+            # TODO: output blank secret input
             prefix_mask = torch.zeros((input_ids.shape[0], self.obfuscate_first_n)).to(input_ids.device).to(input_ids.dtype)
             if attention_mask:
                 attention_mask[:, :self.obfuscate_first_n] = prefix_mask

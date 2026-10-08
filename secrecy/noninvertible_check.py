@@ -84,6 +84,7 @@ model_state_dict = load_file(model_checkpoint_path)
 remapped_state_dict = {remap_keys(k): v for k, v in model_state_dict.items()}
 model.load_state_dict(remapped_state_dict, strict=False) # inverter may not match
 inverter.load_state_dict(original_inverter_state)
+
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
 test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
 

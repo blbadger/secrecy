@@ -27,13 +27,13 @@ data_root = os.getenv('DATA_ROOT')
 
 device = 'cuda' if torch.cuda.is_available else 'cpu'
 
-def add_random_redactions(example, weights=[0.6, 0.4]):
+def add_random_redactions(example, weights=[0.1, 0.9]):
 	input_length = len(example['input_ids'])
 	redaction_tensor = torch.multinomial(torch.tensor(weights), input_length, replacement=True)
 	example['redactions'] = redaction_tensor
 	return example
 
-def add_prefix_redactions(example, tokens_redacted=128):
+def add_prefix_redactions(example, tokens_redacted=256):
 	input_length = len(example['input_ids'])
 	example['redactions'] = torch.cat((torch.ones(tokens_redacted), torch.zeros(input_length-tokens_redacted))).to(torch.long)
 	return example
@@ -103,19 +103,21 @@ model = PostRedactionModel(
 	tokenized_length=context_length,
 	dim=decoder_dim,
 	n_vocab=vocab_size,
-	no_redaction=False
+	no_redaction=False,
+	mask_redaction_attention=True,
+	skip_first_n_loss=None
 	)
 
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-lpad-8k"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-lpad-8k"
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
 
 # load datasets and duplicate entries
 datasets.config.IN_MEMORY_MAX_SIZE = 0
 train_dataset = load_from_disk(train_path)
 test_dataset = load_from_disk(test_path)
 
-train_dataset = train_dataset.map(add_prefix_redactions, num_proc=16)
-test_dataset = test_dataset.map(add_prefix_redactions, num_proc=16)
+train_dataset = train_dataset.map(add_random_redactions, num_proc=16)
+test_dataset = test_dataset.map(add_random_redactions, num_proc=16)
 print (train_dataset[0], test_dataset[0])
 
 global_batch_size = 128
@@ -127,7 +129,7 @@ if torch.cuda.is_available():
 batch_size = global_batch_size // n_devices
 
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_128prefix_redaction\
+output_dir = f'{checkpoint_root}/fineweb_random_redaction_0.9\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
@@ -139,7 +141,7 @@ training_arguments = transformers.TrainingArguments(
 	per_device_train_batch_size=batch_size,
 	per_device_eval_batch_size=batch_size,
 	warmup_steps=500,
-	eval_steps=4000,
+	eval_steps=5000,
 	logging_steps=500,
 	learning_rate=2e-4,
 	fp16=True,
@@ -148,7 +150,7 @@ training_arguments = transformers.TrainingArguments(
 	optim='adamw_torch',
 	max_steps=200000,
 	save_strategy='steps',
-	save_steps=8000,
+	save_steps=10000,
 	torch_compile=True,
 	report_to='none'
 )
@@ -160,7 +162,6 @@ trainer = transformers.Trainer(
 	args=training_arguments,
 	data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False)
 )
-
 
 # save driver code snapshot in checkpoint dir
 code_path = os.path.abspath(__file__)

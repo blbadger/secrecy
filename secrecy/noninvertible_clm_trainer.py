@@ -558,7 +558,7 @@ def init_dualroot_parallelmodel(
     context_length=512, 
     decoder_dim=512, 
     inverter_layers=8, 
-    secret_encoder_layers=3,
+    secret_encoder_layers=4,
     provider_model_layers=16, 
     client_encoder_layers=3,
     unified_decoder_layers=4,
@@ -660,9 +660,9 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
-    n_tokens_obfuscated = 128
-    compress_provider_factor = 4
-    route_method = 'embedding_split'
+    n_tokens_obfuscated = 384
+    compress_provider_factor = 1
+    route_method = 'unroll_embedding'
     model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
 
     #compress_secret_factor = 1
@@ -676,7 +676,6 @@ if __name__ == '__main__':
     #    unroll_secret_embedding=unroll_secret_embedding,
     #    mask_secret_tokens=mask_secret_tokens
     #)
-
 
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
@@ -734,7 +733,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/parallelmodel_s{n_tokens_obfuscated}_c4_embedding_split_ni_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/parallelmodel_s{n_tokens_obfuscated}_unroll_noni_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -757,9 +756,9 @@ if __name__ == '__main__':
         inverter_scheduler=inverter_scheduler, 
         checkpoint_dir=checkpoint_dir,
         steps=num_steps,
-        train_clm = True,
-        train_inverter=True,
-        train_for_noninv=True,
+        train_clm=True,
+        train_inverter=False,
+        train_for_noninv=False,
         n_tokens_obfuscated=n_tokens_obfuscated
     )   
 
