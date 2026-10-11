@@ -461,6 +461,7 @@ def init_noninvertible_parallelmodel(
     route_method='embedding_split',
     context_length=512, 
     decoder_dim=512, 
+    client_dim=512,
     inverter_layers=8, 
     unified_encoder_layers=4,
     provider_model_layers=16, 
@@ -483,8 +484,8 @@ def init_noninvertible_parallelmodel(
 
     # unified encoder specification
     config_kwargs = { 
-        'hidden_size': decoder_dim,
-        'intermediate_size': 4*decoder_dim,
+        'hidden_size': client_dim,
+        'intermediate_size': 4*client_dim,
         'num_hidden_layers': unified_encoder_layers,
         'num_attention_heads': n_heads,
         'vocab_size': vocab_size,
@@ -496,8 +497,8 @@ def init_noninvertible_parallelmodel(
 
     # client encoder specification
     config_kwargs = { 
-        'hidden_size': decoder_dim,
-        'intermediate_size': 4*decoder_dim,
+        'hidden_size': client_dim,
+        'intermediate_size': 4*client_dim,
         'num_hidden_layers': client_encoder_layers,
         'num_attention_heads': n_heads,
         'vocab_size': vocab_size,
@@ -522,8 +523,8 @@ def init_noninvertible_parallelmodel(
 
     # unified decoder model specification
     config_kwargs = { 
-        'hidden_size': decoder_dim,
-        'intermediate_size': 4*decoder_dim,
+        'hidden_size': client_dim,
+        'intermediate_size': 4*client_dim,
         'num_hidden_layers': unified_decoder_layers,
         'num_attention_heads': n_heads,
         'vocab_size': vocab_size,
@@ -662,21 +663,22 @@ if __name__ == '__main__':
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
     n_tokens_obfuscated = 128
-    #compress_provider_factor = 1
-    #route_method = 'unroll_embedding'
-    #model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
+    compress_provider_factor = 1
+    route_method = 'unroll_embedding'
+    client_dim = 128
+    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim)
 
-    compress_secret_factor = 1
-    unroll_secret_embedding = True
-    mask_secret_tokens = True
-    model, inverter = init_dualroot_parallelmodel(
-        tokenizer, 
-        vocab_size, 
-        n_tokens_obfuscated, 
-        compress_secret_factor=compress_secret_factor, 
-        unroll_secret_embedding=unroll_secret_embedding,
-        mask_secret_tokens=mask_secret_tokens
-    )
+    # compress_secret_factor = 1
+    # unroll_secret_embedding = True
+    # mask_secret_tokens = True
+    # model, inverter = init_dualroot_parallelmodel(
+    #     tokenizer, 
+    #     vocab_size, 
+    #     n_tokens_obfuscated, 
+    #     compress_secret_factor=compress_secret_factor, 
+    #     unroll_secret_embedding=unroll_secret_embedding,
+    #     mask_secret_tokens=mask_secret_tokens
+    # )
 
 
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
@@ -688,7 +690,7 @@ if __name__ == '__main__':
 
     learning_rate = 2e-4
     num_gpus = torch.cuda.device_count()
-    batch_size = 128 // num_gpus
+    batch_size = 16 // num_gpus
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
@@ -735,7 +737,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/parallelmodel_dualroot_masked_unrolled_embedding_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/parallelmodel_c128_unrolled_embedding_noni_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir

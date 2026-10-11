@@ -113,6 +113,7 @@ class ParallelNoninvertibleModel(nn.Module):
         
         self.n_vocab = n_vocab
         self.clm_head = nn.Linear(dim, n_vocab)
+        # for split embeddings
         self.client_proj = nn.Linear(dim//2, dim)
         self.provider_proj = nn.Linear(dim//2, dim)
         self.dim = dim
@@ -142,15 +143,25 @@ class ParallelNoninvertibleModel(nn.Module):
             self.in_provider_proj = nn.Linear(dim, dim//self.provider_emb_compression)
             self.out_provider_proj = nn.Linear(dim//self.provider_emb_compression, dim)
         self.mask_secret_tokens = mask_secret_tokens
+
+        self.provider_in_proj = None
+        self.provider_out_proj = None
+        encoder_dim = self.unified_encoder.config.hidden_size
+        if self.unified_encoder.config.hidden_size != self.provider_model.config.hidden_size:
+            self.provider_in_proj = nn.Linear(self.unified_encoder.config.hidden_size, self.provider_model.config.hidden_size)
+
+        if self.provider_model.config.hidden_size != self.unified_decoder.config.hidden_size:
+            self.provider_out_proj = nn.Linear(self.provider_model.config.hidden_size, self.unified_decoder.config.hidden_size)
+
         
     def unroll_embedding(self, embedding):
         embedding_stack = []
         # sliding window unroll over hidden dim
         for i in range(self.obfuscate_first_n):
-            i %= self.dim
-            sliding_window = embedding[..., i:i+self.dim//2]
-            if i+self.dim//2 > self.dim:
-                residual = i+self.dim//2 - self.dim 
+            i %= self.encoder_dim
+            sliding_window = embedding[..., i:i+self.encoder_dim//2]
+            if i+self.encoder_dim//2 > self.encoder_dim:
+                residual = i+self.encoder_dim//2 - self.encoder_dim 
                 # loop around to first index
                 sliding_window = torch.cat((sliding_window, embedding[..., :residual]), dim=2)
             embedding_stack.append(sliding_window)
@@ -169,14 +180,17 @@ class ParallelNoninvertibleModel(nn.Module):
         encoder_outputs = self.unified_encoder(input_ids=x, attention_mask=attention_mask).last_hidden_state # shape [b t e]
 
         if self.route_method == 'embedding_split':
-            client_input = self.client_proj(encoder_outputs[:, :, :self.dim//2])
-            provider_input = self.provider_proj(encoder_outputs[:, :, self.dim//2:])
+            client_input = self.client_proj(encoder_outputs[:, :, :self.encoder_dim//2])
+            provider_input = self.provider_proj(encoder_outputs[:, :, self.encoder_dim//2:])
 
         elif self.route_method == 'unroll_embedding':
             client_input = encoder_outputs
             # unroll last obfuscated embedding and concat with all others
             unrolled_embedding = self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n-1, :].unsqueeze(1))
             provider_input = torch.cat((unrolled_embedding, encoder_outputs[:, self.obfuscate_first_n:, :]), dim=1)
+
+        if self.provider_in_proj is not None:
+            provider_input = self.provider_in_proj(provider_input)
 
         if self.provider_emb_compression > 1:
             prefix_provider_input = self.out_provider_proj(self.in_provider_proj(provider_input[:, :self.obfuscate_first_n, :]))
@@ -186,6 +200,9 @@ class ParallelNoninvertibleModel(nn.Module):
             provider_input = self.mask_obfuscated_tokens(provider_input)
 
         provider_output = self.provider_model(inputs_embeds=provider_input).last_hidden_state
+
+        if self.provider_out_proj is not None:
+            provider_output = self.provider_out_proj(provider_output)
         
         inverter_input = provider_input # [b t e], all provider inputs need to be used for inversion tests
         inverted_output = self.inversion_decoder(inputs_embeds=inverter_input) # returns logits, not last hidden state
