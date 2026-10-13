@@ -180,6 +180,8 @@ def load_checkpoint(
     unwrapped_model = accelerator.unwrap_model(model)
     unwrapped_inverter = accelerator.unwrap_model(inverter)
 
+    unwrapped_model = unwrapped_model._orig_mod if is_compiled_module(unwrapped_model) else unwrapped_model
+    unwrapped_inverter = unwrapped_inverter._orig_mod if is_compiled_module(unwrapped_inverter) else unwrapped_inverter
     load_model(unwrapped_model, os.path.join(checkpoint_dir, "clm_model.safetensors"))
     load_model(unwrapped_inverter, os.path.join(checkpoint_dir, "inverter.safetensors"))
 
@@ -284,6 +286,19 @@ def train_noninvertible_clm(
     eval_logger = EvalLogger(
         enabled=accelerator.is_main_process,
         resume_path=os.path.join(checkpoint_dir, f"step_{start_step}", "eval_log.jsonl") if start_step else None,
+    )
+    checkpoint = checkpoint_dir + f'/step_{start_step}'
+    print (checkpoint)
+    if start_step > 0:
+        load_checkpoint(
+        accelerator, 
+        model, 
+        inverter, 
+        model_optimizer, 
+        inverter_optimizer, 
+        clm_scheduler, 
+        inverter_scheduler, 
+        checkpoint
     )
     toggle_grads(inverter, bool=False)
     global_step = start_step
@@ -666,7 +681,7 @@ if __name__ == '__main__':
     n_tokens_obfuscated = 128
     compress_provider_factor = 1
     route_method = 'unroll_embedding'
-    client_dim = 128
+    client_dim = 256
     model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim)
 
     # compress_secret_factor = 1
@@ -691,7 +706,7 @@ if __name__ == '__main__':
 
     learning_rate = 2e-4
     num_gpus = torch.cuda.device_count()
-    batch_size = 16 // num_gpus
+    batch_size = 128 // num_gpus
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
@@ -738,7 +753,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/parallelmodel_s{n_tokens_obfuscated}_unroll_noni_c128_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/parallelmodel_s{n_tokens_obfuscated}_unroll_noni_c256_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -764,6 +779,7 @@ if __name__ == '__main__':
         train_clm=True,
         train_inverter=False,
         train_for_noninv=False,
-        n_tokens_obfuscated=n_tokens_obfuscated
+        n_tokens_obfuscated=n_tokens_obfuscated,
+        start_step=110000
     )   
 
