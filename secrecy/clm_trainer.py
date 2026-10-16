@@ -50,7 +50,7 @@ clm_configuration = LlamaConfig(**clm_config_kwargs)
 model = LlamaForCausalLM(clm_configuration)
 
 def secrefy_input(input, s=384):
-	input['input_ids'] = input['input-ids'][s:]
+	input['input_ids'] = input['input_ids'][s:]
 	if 'attention_mask' in input:
 		input['attention_mask'] = input['attention_mask'][s:]
 	return input
