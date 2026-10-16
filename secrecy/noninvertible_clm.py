@@ -200,6 +200,7 @@ class ParallelNoninvertibleModel(nn.Module):
         self.provider_in_proj = None
         self.provider_out_proj = None
         encoder_dim = self.unified_encoder.config.hidden_size
+        self.encoder_dim = encoder_dim
         if self.unified_encoder.config.hidden_size != self.provider_model.config.hidden_size:
             self.provider_in_proj = nn.Linear(self.unified_encoder.config.hidden_size, self.provider_model.config.hidden_size)
 

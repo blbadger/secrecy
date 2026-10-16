@@ -276,6 +276,7 @@ def train_noninvertible_clm(
         evaluate_every=10000,
         log_every=500,
         n_tokens_obfuscated=128,
+        random_inversion_input=False,
         alpha=1.,
         beta=1.
     ):
@@ -341,6 +342,8 @@ def train_noninvertible_clm(
             
             if train_inverter:
                 toggle_grads(inverter, bool=True)
+                if random_inversion_input:
+                    noninvertible_embedding = torch.randn(noninvertible_embedding.shape).to(noninvertible_embedding.dtype).to(noninvertible_embedding.device)
                 with accelerator.autocast():
                     if isinstance(unwrap_model(noninvertible_clm), DualRootParallelModel):
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction

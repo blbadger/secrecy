@@ -144,7 +144,11 @@ model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dat
 loss_fn = torch.nn.CrossEntropyLoss()
 
 n_devices = accelerator.num_processes
+<<<<<<< HEAD
 output_dir = f"{data_root}/noninvertible_check_mixer_nomidresid_noni_b{batch_size}x{n_devices}"
+=======
+output_dir = f"{data_root}/noninvertible_check_randominp_s{n_tokens_obfuscated}_b{batch_size}x{n_devices}"
+>>>>>>> b8de099 (minor updates)
 print ('Model loaded, inverter initialized, training inverter only')
 
 # save driver code snapshot in checkpoint dir
@@ -168,5 +172,6 @@ train_noninvertible_clm(
     checkpoint_dir=output_dir,
     steps=num_steps,
     train_clm = False,
-    n_tokens_obfuscated=n_tokens_obfuscated
+    n_tokens_obfuscated=n_tokens_obfuscated,
+    random_inversion_input=True
 )
