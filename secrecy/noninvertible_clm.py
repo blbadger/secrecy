@@ -105,12 +105,12 @@ class NonInvertibleMixer(nn.Module):
         self.clm_loss_only = clm_loss_only
 
     def forward(self, input_ids, labels=None, attention_mask=None):
-        x = input_ids.to(device)
-        labels = labels.to(device)
-        loss, split_hidden_states, logits = self.split_mixer(input_ids=x, labels=labels)
+        x = input_ids.to(device).to(torch.long)
+        labels = labels.to(device).to(torch.long)
+        clm_loss, split_hidden_states, logits = self.split_model(input_ids=x, labels=labels)
 
         encoder_embedding = split_hidden_states # dim=[batch, token, hidden]
-        inverted_logits = self.inversion_decoder(encoder_embedding)
+        _, inverted_logits = self.inversion_decoder(inputs_embeds=encoder_embedding)
 
         if labels is not None:
             inversion_loss = self.cel(inverted_logits, labels)  # we want to maximize CEL for inversion

@@ -1,6 +1,7 @@
 import os
 import torch
 from einops import rearrange
+import torch.nn.functional as F
 import torch.nn as nn
 
 def FeedForward(dim, expansion_factor=4):
@@ -80,7 +81,7 @@ class DoubleMixerBlock(nn.Module):
 
 class MixerBlock(nn.Module):
 
-	def __init__(self, dim, length=512, expand_conv=False, kernel=1, n_heads=0):
+	def __init__(self, dim, length=512, expand_conv=False, kernel=1, n_heads=0, mixer_residual=True, mlp_residual=True):
 		super().__init__()
 		self.patch_layernorm = nn.LayerNorm(dim)
 		self.seq_layernorm = nn.LayerNorm(dim)
@@ -94,14 +95,17 @@ class MixerBlock(nn.Module):
 				self.conv = MixerHead(dim, length, dim//n_heads, n_heads)
 			else:
 				self.conv = nn.Conv1d(length, length, kernel, padding='same')
+		self.n_heads = n_heads
 		self.expand_conv = expand_conv
+		self.mixer_residual = mixer_residual
+		self.mlp_residual = mlp_residual
 
 	def forward(self, x: torch.tensor):
 		if x.dim() > 3:
 			x = rearrange(x, 'b p t f -> (b p) t f')
 
 		# for CLM training, apply lower triangular mask to convolution weights
-		if self.expand_conv:
+		if self.n_heads==0 and self.expand_conv:
 			rearranged_shape = rearrange(self.conv[0].weight, 'f d p -> f (d p)').shape
 			mask = torch.tril(torch.ones(rearranged_shape)).to(device)
 			applied_mask = rearrange(self.conv[0].weight, 'f d p -> f (d p)') * mask
@@ -113,18 +117,21 @@ class MixerBlock(nn.Module):
 			applied_mask = rearrange(self.conv[2].weight, 'f d p -> f (d p)') * mask
 			self.conv[2].weight.data = rearrange(applied_mask, 'f (d p) -> f d p', p=1)
 
-		else:
+		elif self.n_heads==0:
 			masked_conv = torch.tril(rearrange(self.conv.weight, 'f d p -> p f d'))
 			self.conv.weight.data = rearrange(masked_conv, 'p f d -> f d p').contiguous()
 
 		residual = x
 		x = self.seq_layernorm(x)
-		x = self.conv(x) + residual
+		x = self.conv(x)
+		if self.mixer_residual:
+			x += residual
 		residual = x
 		x = self.patch_layernorm(x)
-		x = self.patch_ff(x) + residual
+		x = self.patch_ff(x)
+		if self.mlp_residual:
+			x += residual
 		return x
-
 
 class MixerHead(nn.Module):
 
@@ -141,20 +148,19 @@ class MixerHead(nn.Module):
 			for i in range(n_heads)]
 			)
 
-		self.out_proj = nn.Linear(dim*n_heads, dim)
+		self.out_proj = nn.Linear(dim, dim)
 		self.GeLU = nn.GELU()
 
 	def forward(self, x: torch.tensor):
-
-		for i in range(len(self.convs)):
-			masked_conv = torch.tril(rearrange(self.convs[i].weight, 'f d p -> p f d'))
-			self.convs[i].weight.data = rearrange(masked_conv, 'p f d -> f d p').contiguous()
-
 		hidden_layer = []
 
 		for head in range(self.n_heads):
-			projection = self.proj_head[i](x)
-			conv_projection = self.convs[i](x)
+			weight = self.convs[head].weight
+			masked_weight = torch.tril(rearrange(weight, 'f d p -> p f d'))
+			masked_weight = rearrange(masked_weight, 'p f d -> f d p').contiguous()
+			
+			projection = self.proj_head[head](x)
+			conv_projection = F.conv1d(projection, masked_weight, bias=self.convs[head].bias)
 			hidden_layer.append(conv_projection)
 
 		# concatenate and project multi-headed output
@@ -168,7 +174,7 @@ class MLPMixerBlock(nn.Module):
 	flexible than 1D convs, prefer that unless there is a specific reason to use matmults.
 	"""
 
-	def __init__(self, dim, length, **kwargs, mixer_residual=True, mlp_residual=True):
+	def __init__(self, dim, length,  mixer_residual=True, mlp_residual=True):
 		super().__init__()
 		self.patch_layernorm = nn.LayerNorm(dim)
 		self.seq_layernorm = nn.LayerNorm(dim)
@@ -177,7 +183,6 @@ class MLPMixerBlock(nn.Module):
 		self.patch_ff = FeedForward(dim)
 		self.conv = nn.Linear(length, length)
 		self.mixer_residual = mixer_residual
-		self.
 
 
 	def forward(self, x: torch.tensor):
@@ -220,9 +225,12 @@ class LanguageMixer(nn.Module):
 			self.wte.weight = self.lm_head.weight
 		self.cel = nn.CrossEntropyLoss()
 
-	def forward(self, input_ids, labels=None, **kwargs):
-		x = input_ids
-		x = self.wte(x)
+	def forward(self, input_ids=None, inputs_embeds=None, labels=None, **kwargs):
+		if inputs_embeds is None:
+			x = input_ids
+			x = self.wte(x)
+		else:
+			x = inputs_embeds
 		for i, block in enumerate(self.mixerblocks):
 			x = block(x)
 		output = self.lm_head(x)
@@ -260,7 +268,7 @@ class SplitLanguageMixer(nn.Module):
 		if tie_weights:
 			self.wte.weight = self.lm_head.weight
 		self.cel = nn.CrossEntropyLoss()
-		split_layer = split_layer
+		self.split_layer = split_layer
 
 	def forward(self, input_ids, labels=None, **kwargs):
 		x = input_ids
@@ -268,7 +276,7 @@ class SplitLanguageMixer(nn.Module):
 
 		split_output = None
 		for i, block in enumerate(self.mixerblocks): 
-			if i == split_layer:
+			if i == self.split_layer:
 				split_output = x
 			x = block(x)
 

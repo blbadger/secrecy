@@ -26,14 +26,14 @@ from peft import LoraConfig, TaskType, get_peft_model
 
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
-from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleModel, DualRootParallelModel
+from noninvertible_clm import NonInvertibleTransformer, NonInvertibleMixer, ParallelNoninvertibleModel, DualRootParallelModel
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs, is_compiled_module
 from transformers import get_linear_schedule_with_warmup
 from accelerate.utils import TorchDynamoPlugin
-
+from mixer import LanguageMixer, SplitLanguageMixer
 from safetensors.torch import save_file, save_model, load_model, load_file
 import os
 
@@ -219,6 +219,8 @@ def evaluate_noninvertibility(
 
             if isinstance(unwrap_model(noninvertible_clm), DualRootParallelModel):
                 inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
+            elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer):
+                inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # loss on all inputs
             else:
                 inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
                 inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
@@ -326,6 +328,8 @@ def train_noninvertible_clm(
                 with accelerator.autocast():
                     if isinstance(unwrap_model(noninvertible_clm), DualRootParallelModel):
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
+                    elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer):
+                        inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # loss on all inputs
                     else:
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
                         ignore_index = -100
@@ -483,10 +487,10 @@ def init_noninvertible_mixer(
     model = NonInvertibleMixer(
         vocab_size,
         decoder_dim,
-        split_model,
+        model,
         inverter,
     )
-    return model
+    return model, inverter
 
 
 def init_noninvertible_parallelmodel(
@@ -716,7 +720,7 @@ if __name__ == '__main__':
     #     mask_secret_tokens=mask_secret_tokens
     # )
 
-    n_tokens_obfuscated = 128
+    n_tokens_obfuscated = 512
     model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=False)
 
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
@@ -728,7 +732,7 @@ if __name__ == '__main__':
 
     learning_rate = 2e-4
     num_gpus = torch.cuda.device_count()
-    batch_size = 16 // num_gpus
+    batch_size = 128 // num_gpus
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
@@ -775,7 +779,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_mixer_noresid_ni_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_mixer_resid_noni_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -799,8 +803,8 @@ if __name__ == '__main__':
         checkpoint_dir=checkpoint_dir,
         steps=num_steps,
         train_clm = True,
-        train_inverter = True,
-        train_for_noninv = True,
+        train_inverter = False,
+        train_for_noninv = False,
         n_tokens_obfuscated=n_tokens_obfuscated
     )   
 
