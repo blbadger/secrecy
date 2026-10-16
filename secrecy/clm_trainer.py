@@ -49,12 +49,18 @@ clm_config_kwargs = {
 clm_configuration = LlamaConfig(**clm_config_kwargs)
 model = LlamaForCausalLM(clm_configuration)
 
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512"
+def secrefy_input(input, s=128):
+	input['input_ids'] = input['input_ids'][s:]
+	if 'attention_mask' in input:
+		input['attention_mask'] = input['attention_mask'][s:]
+	return input
+
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
 
 # load datasets and duplicate entries
-train_dataset = load_from_disk(train_path)
-test_dataset = load_from_disk(test_path)
+train_dataset = load_from_disk(train_path).map(secrefy_input, num_proc=12)
+test_dataset = load_from_disk(test_path).map(secrefy_input, num_proc=12)
 
 global_batch_size = 128
 n_devices = 4
@@ -65,7 +71,7 @@ if torch.cuda.is_available():
 
 batch_size = global_batch_size // n_devices
 
-output_dir = f'{checkpoint_root}/fineweb_transformer\
+output_dir = f'{checkpoint_root}/fineweb_transformer_s128\
 _d{decoder_dim}\
 _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'

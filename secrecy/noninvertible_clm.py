@@ -76,6 +76,56 @@ class NonInvertibleTransformer(nn.Module):
             return clm_loss, inversion_loss, encoder_embedding
 
 
+
+class NonInvertibleMixer(nn.Module):
+       
+    def __init__(self, 
+        n_vocab, 
+        dim, 
+        split_model, 
+        inversion_decoder, 
+        clm_head=None, 
+        tokenized_length=512, 
+        freeze_decoders=True, 
+        clm_loss_only=False
+        ):
+        super().__init__()
+        self.inversion_decoder = inversion_decoder # mixer decoder stack
+        # inversion model is frozen here, trained elsewhere
+        for _, param in self.inversion_decoder.named_parameters():
+            param.requires_grad = False
+
+        self.cel = nn.CrossEntropyLoss()
+        self.tokenized_length = tokenized_length
+        self.dim = dim
+
+        self.n_vocab = n_vocab
+        self.split_model = split_model
+        
+        self.clm_loss_only = clm_loss_only
+
+    def forward(self, input_ids, labels=None, attention_mask=None):
+        x = input_ids.to(device).to(torch.long)
+        labels = labels.to(device).to(torch.long)
+        clm_loss, split_hidden_states, logits = self.split_model(input_ids=x, labels=labels)
+
+        encoder_embedding = split_hidden_states # dim=[batch, token, hidden]
+        _, inverted_logits = self.inversion_decoder(inputs_embeds=encoder_embedding)
+
+        if labels is not None:
+            inversion_loss = self.cel(inverted_logits, labels)  # we want to maximize CEL for inversion
+
+        else:
+            clm_loss = 0
+            inversion_loss = 0
+
+        if self.clm_loss_only:
+            return clm_loss, encoder_embedding
+        else:
+            return clm_loss, inversion_loss, encoder_embedding
+
+
+
 class ParallelNoninvertibleModel(nn.Module):
        
     def __init__(self, 
@@ -146,6 +196,16 @@ class ParallelNoninvertibleModel(nn.Module):
             self.in_provider_proj = nn.Linear(dim, dim//self.provider_emb_compression)
             self.out_provider_proj = nn.Linear(dim//self.provider_emb_compression, dim)
         self.mask_secret_tokens = mask_secret_tokens
+
+        self.provider_in_proj = None
+        self.provider_out_proj = None
+        encoder_dim = self.unified_encoder.config.hidden_size
+        if self.unified_encoder.config.hidden_size != self.provider_model.config.hidden_size:
+            self.provider_in_proj = nn.Linear(self.unified_encoder.config.hidden_size, self.provider_model.config.hidden_size)
+
+        if self.provider_model.config.hidden_size != self.unified_decoder.config.hidden_size:
+            self.provider_out_proj = nn.Linear(self.provider_model.config.hidden_size, self.unified_decoder.config.hidden_size)
+
         
         self.embeddings_to_unroll = embeddings_to_unroll
         self.provider_in_proj = None
@@ -206,7 +266,9 @@ class ParallelNoninvertibleModel(nn.Module):
 
         provider_output = self.provider_model(inputs_embeds=provider_input).last_hidden_state
 
-        provider_output = self.provider_model(inputs_embeds=provider_input).last_hidden_state
+        if self.provider_out_proj is not None:
+            provider_output = self.provider_out_proj(provider_output)
+
         inverter_input = provider_input # [b t e], all provider inputs need to be used for inversion tests
         inverted_output = self.inversion_decoder(inputs_embeds=inverter_input) # returns logits, not last hidden state
 

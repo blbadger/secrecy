@@ -26,14 +26,14 @@ from peft import LoraConfig, TaskType, get_peft_model
 
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
-from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleModel, DualRootParallelModel
+from noninvertible_clm import NonInvertibleTransformer, NonInvertibleMixer, ParallelNoninvertibleModel, DualRootParallelModel
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs, is_compiled_module
 from transformers import get_linear_schedule_with_warmup
 from accelerate.utils import TorchDynamoPlugin
-
+from mixer import LanguageMixer, SplitLanguageMixer
 from safetensors.torch import save_file, save_model, load_model, load_file
 import os
 
@@ -221,6 +221,8 @@ def evaluate_noninvertibility(
 
             if isinstance(unwrap_model(noninvertible_clm), DualRootParallelModel):
                 inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
+            elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer):
+                inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # loss on all inputs
             else:
                 inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
                 inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
@@ -341,6 +343,8 @@ def train_noninvertible_clm(
                 with accelerator.autocast():
                     if isinstance(unwrap_model(noninvertible_clm), DualRootParallelModel):
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
+                    elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer):
+                        inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # loss on all inputs
                     else:
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
                         ignore_index = -100
@@ -467,6 +471,42 @@ def init_noninvertible_transformer(tokenizer,
         clm_head=clm_head,
     )
     return model
+
+def init_noninvertible_mixer(
+        tokenizer, 
+        vocab_size, 
+        context_length=512, 
+        decoder_dim=512, 
+        inverter_layers=8, 
+        model_layers=16, 
+        n_heads=4,
+        mixer_residual=False
+    ):
+    model = SplitLanguageMixer(
+        vocab_size, 
+        decoder_dim, 
+        model_layers,
+        context_length,
+        n_heads=n_heads,
+        split_layer=8,
+        mixer_residual=mixer_residual
+        )
+
+    inverter = LanguageMixer(
+        vocab_size, 
+        decoder_dim, 
+        model_layers//2, # 8 layer decoder for 8 layer encoder 
+        context_length, 
+        n_heads=n_heads)
+
+    model = NonInvertibleMixer(
+        vocab_size,
+        decoder_dim,
+        model,
+        inverter,
+    )
+    return model, inverter
+
 
 def init_noninvertible_parallelmodel(
     tokenizer, 
@@ -678,13 +718,13 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
-
     n_tokens_obfuscated = 384
     compress_provider_factor = 1
     route_method = 'unroll_embedding'
     client_dim = 512
     embeddings_to_unroll = 3
     model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
+
 
     # compress_secret_factor = 1
     # unroll_secret_embedding = True
@@ -698,6 +738,8 @@ if __name__ == '__main__':
     #     mask_secret_tokens=mask_secret_tokens
     # )
 
+#     n_tokens_obfuscated = 512
+#     model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=False)
 
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
