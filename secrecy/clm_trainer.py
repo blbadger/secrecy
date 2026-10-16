@@ -49,7 +49,7 @@ clm_config_kwargs = {
 clm_configuration = LlamaConfig(**clm_config_kwargs)
 model = LlamaForCausalLM(clm_configuration)
 
-def secrefy_input(input, s=384):
+def secrefy_input(input, s=128):
 	input['input_ids'] = input['input_ids'][s:]
 	if 'attention_mask' in input:
 		input['attention_mask'] = input['attention_mask'][s:]
@@ -71,7 +71,7 @@ if torch.cuda.is_available():
 
 batch_size = global_batch_size // n_devices
 
-output_dir = f'{checkpoint_root}/fineweb_transformer_s384\
+output_dir = f'{checkpoint_root}/fineweb_transformer_s128\
 _d{decoder_dim}\
 _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'
