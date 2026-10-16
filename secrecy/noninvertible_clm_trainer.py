@@ -482,7 +482,8 @@ def init_noninvertible_parallelmodel(
     provider_model_layers=16, 
     client_encoder_layers=3,
     unified_decoder_layers=4,
-    n_heads=4
+    n_heads=4,
+    embeddings_to_unroll=1
     ):
     # inversion model specification: must be bidirectional if the input token indices are not reversed
     config_kwargs = {
@@ -562,6 +563,7 @@ def init_noninvertible_parallelmodel(
         n_tokens_obfuscated=n_tokens_obfuscated,
         compress_provider_factor=compress_provider_factor,
         route_method=route_method,
+        embeddings_to_unroll=embeddings_to_unroll
     )
     return model, inverter
 
@@ -671,18 +673,18 @@ if __name__ == '__main__':
     checkpoint_root = os.getenv('CHECKPOINT_ROOT')
     data_root = os.getenv('DATA_ROOT')
 
-
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
 
-    n_tokens_obfuscated = 128
+    n_tokens_obfuscated = 384
     compress_provider_factor = 1
     route_method = 'unroll_embedding'
-    client_dim = 256
-    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim)
+    client_dim = 512
+    embeddings_to_unroll = 3
+    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
 
     # compress_secret_factor = 1
     # unroll_secret_embedding = True
@@ -753,7 +755,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/parallelmodel_s{n_tokens_obfuscated}_unroll_noni_c256_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/parallelmodel_s{n_tokens_obfuscated}_3unroll_noni_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -780,6 +782,6 @@ if __name__ == '__main__':
         train_inverter=False,
         train_for_noninv=False,
         n_tokens_obfuscated=n_tokens_obfuscated,
-        start_step=110000
+        start_step=120000
     )   
 

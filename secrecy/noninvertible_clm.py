@@ -95,7 +95,8 @@ class ParallelNoninvertibleModel(nn.Module):
         no_provider_modules=False,
         compress_provider_factor=1,
         route_method='embedding_split',
-        mask_secret_tokens=False
+        mask_secret_tokens=False,
+        embeddings_to_unroll=1
     ):
         super().__init__()
         self.cel = nn.CrossEntropyLoss()
@@ -145,7 +146,8 @@ class ParallelNoninvertibleModel(nn.Module):
             self.in_provider_proj = nn.Linear(dim, dim//self.provider_emb_compression)
             self.out_provider_proj = nn.Linear(dim//self.provider_emb_compression, dim)
         self.mask_secret_tokens = mask_secret_tokens
-
+        
+        self.embeddings_to_unroll = embeddings_to_unroll
         self.provider_in_proj = None
         self.provider_out_proj = None
         if self.unified_encoder.config.hidden_size != self.provider_model.config.hidden_size:
@@ -187,7 +189,9 @@ class ParallelNoninvertibleModel(nn.Module):
         elif self.route_method == 'unroll_embedding':
             client_input = encoder_outputs
             # unroll last obfuscated embedding and concat with all others
-            unrolled_embedding = self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n-1, :].unsqueeze(1))
+            unrolled_embedding = torch.zeros((client_input.shape[0], self.obfuscate_first_n, client_input.shape[2])).to(client_input.device).to(client_input.dtype)
+            for m in range(self.embeddings_to_unroll):
+                unrolled_embedding += self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n-(m+1), :].unsqueeze(1))
             provider_input = torch.cat((unrolled_embedding, encoder_outputs[:, self.obfuscate_first_n:, :]), dim=1)
 
         if self.provider_in_proj is not None:
