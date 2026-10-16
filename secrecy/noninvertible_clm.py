@@ -76,6 +76,56 @@ class NonInvertibleTransformer(nn.Module):
             return clm_loss, inversion_loss, encoder_embedding
 
 
+
+class NonInvertibleMixer(nn.Module):
+       
+    def __init__(self, 
+        n_vocab, 
+        dim, 
+        split_model, 
+        inversion_decoder, 
+        clm_head=None, 
+        tokenized_length=512, 
+        freeze_decoders=True, 
+        clm_loss_only=False
+        ):
+        super().__init__()
+        self.inversion_decoder = inversion_decoder # mixer decoder stack
+        # inversion model is frozen here, trained elsewhere
+        for _, param in self.inversion_decoder.named_parameters():
+            param.requires_grad = False
+
+        self.cel = nn.CrossEntropyLoss()
+        self.tokenized_length = tokenized_length
+        self.dim = dim
+
+        self.n_vocab = n_vocab
+        self.split_model = split_model
+        
+        self.clm_loss_only = clm_loss_only
+
+    def forward(self, input_ids, labels=None, attention_mask=None):
+        x = input_ids.to(device)
+        labels = labels.to(device)
+        loss, split_hidden_states, logits = self.split_mixer(input_ids=x, labels=labels)
+
+        encoder_embedding = split_hidden_states # dim=[batch, token, hidden]
+        inverted_logits = self.inversion_decoder(encoder_embedding)
+
+        if labels is not None:
+            inversion_loss = self.cel(inverted_logits, labels)  # we want to maximize CEL for inversion
+
+        else:
+            clm_loss = 0
+            inversion_loss = 0
+
+        if self.clm_loss_only:
+            return clm_loss, encoder_embedding
+        else:
+            return clm_loss, inversion_loss, encoder_embedding
+
+
+
 class ParallelNoninvertibleModel(nn.Module):
        
     def __init__(self, 

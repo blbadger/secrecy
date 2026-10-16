@@ -453,6 +453,42 @@ def init_noninvertible_transformer(tokenizer,
     )
     return model
 
+def init_noninvertible_mixer(
+        tokenizer, 
+        vocab_size, 
+        context_length=512, 
+        decoder_dim=512, 
+        inverter_layers=8, 
+        model_layers=16, 
+        n_heads=4,
+        mixer_residual=False
+    ):
+    model = SplitLanguageMixer(
+        vocab_size, 
+        decoder_dim, 
+        model_layers,
+        context_length,
+        n_heads=n_heads,
+        split_layer=8,
+        mixer_residual=mixer_residual
+        )
+
+    inverter = LanguageMixer(
+        vocab_size, 
+        decoder_dim, 
+        model_layers//2, # 8 layer decoder for 8 layer encoder 
+        context_length, 
+        n_heads=n_heads)
+
+    model = NonInvertibleMixer(
+        vocab_size,
+        decoder_dim,
+        split_model,
+        inverter,
+    )
+    return model
+
+
 def init_noninvertible_parallelmodel(
     tokenizer, 
     vocab_size, 
@@ -662,11 +698,11 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
-    n_tokens_obfuscated = 128
-    compress_provider_factor = 1
-    route_method = 'unroll_embedding'
-    client_dim = 128
-    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim)
+    # n_tokens_obfuscated = 128
+    # compress_provider_factor = 1
+    # route_method = 'unroll_embedding'
+    # client_dim = 128
+    # model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim)
 
     # compress_secret_factor = 1
     # unroll_secret_embedding = True
@@ -680,6 +716,8 @@ if __name__ == '__main__':
     #     mask_secret_tokens=mask_secret_tokens
     # )
 
+    n_tokens_obfuscated = 128
+    model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=False)
 
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
@@ -737,7 +775,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/parallelmodel_c128_unrolled_embedding_noni_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_mixer_noresid_ni_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -761,8 +799,8 @@ if __name__ == '__main__':
         checkpoint_dir=checkpoint_dir,
         steps=num_steps,
         train_clm = True,
-        train_inverter = False,
-        train_for_noninv = False,
+        train_inverter = True,
+        train_for_noninv = True,
         n_tokens_obfuscated=n_tokens_obfuscated
     )   
 
