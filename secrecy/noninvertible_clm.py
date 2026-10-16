@@ -145,7 +145,8 @@ class ParallelNoninvertibleModel(nn.Module):
         no_provider_modules=False,
         compress_provider_factor=1,
         route_method='embedding_split',
-        mask_secret_tokens=False
+        mask_secret_tokens=False,
+        embeddings_to_unroll=1
     ):
         super().__init__()
         self.cel = nn.CrossEntropyLoss()
@@ -155,7 +156,6 @@ class ParallelNoninvertibleModel(nn.Module):
         else:
             self.obfuscate_first_n = n_tokens_obfuscated
         self.dim = dim
-        self.clm_head = clm_head
         self.inversion_head = nn.Linear(dim, n_vocab)
         self.clm_head = nn.Linear(dim, n_vocab)
 
@@ -185,9 +185,12 @@ class ParallelNoninvertibleModel(nn.Module):
         for _, param in self.unified_encoder.named_parameters():
             param.requires_grad = True
 
+        self.encoder_dim = self.unified_encoder.config.hidden_size
+        self.unified_decoder_dim = self.unified_decoder.config.hidden_size
+        self.clm_head = nn.Linear(self.unified_decoder_dim, n_vocab) # TODO: replace overwrite here
         self.route_method = route_method
         if self.route_method == 'unroll_embedding':
-            self.unroll_projection = nn.Linear(dim//2, dim)
+            self.unroll_projection = nn.Linear(self.encoder_dim//2, self.encoder_dim)
         self.provider_emb_compression = compress_provider_factor
         if self.provider_emb_compression > 1:
             self.in_provider_proj = nn.Linear(dim, dim//self.provider_emb_compression)
@@ -197,6 +200,16 @@ class ParallelNoninvertibleModel(nn.Module):
         self.provider_in_proj = None
         self.provider_out_proj = None
         encoder_dim = self.unified_encoder.config.hidden_size
+        if self.unified_encoder.config.hidden_size != self.provider_model.config.hidden_size:
+            self.provider_in_proj = nn.Linear(self.unified_encoder.config.hidden_size, self.provider_model.config.hidden_size)
+
+        if self.provider_model.config.hidden_size != self.unified_decoder.config.hidden_size:
+            self.provider_out_proj = nn.Linear(self.provider_model.config.hidden_size, self.unified_decoder.config.hidden_size)
+
+        
+        self.embeddings_to_unroll = embeddings_to_unroll
+        self.provider_in_proj = None
+        self.provider_out_proj = None
         if self.unified_encoder.config.hidden_size != self.provider_model.config.hidden_size:
             self.provider_in_proj = nn.Linear(self.unified_encoder.config.hidden_size, self.provider_model.config.hidden_size)
 
@@ -236,7 +249,9 @@ class ParallelNoninvertibleModel(nn.Module):
         elif self.route_method == 'unroll_embedding':
             client_input = encoder_outputs
             # unroll last obfuscated embedding and concat with all others
-            unrolled_embedding = self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n-1, :].unsqueeze(1))
+            unrolled_embedding = torch.zeros((client_input.shape[0], self.obfuscate_first_n, client_input.shape[2])).to(client_input.device).to(client_input.dtype)
+            for m in range(self.embeddings_to_unroll):
+                unrolled_embedding += self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n-(m+1), :].unsqueeze(1))
             provider_input = torch.cat((unrolled_embedding, encoder_outputs[:, self.obfuscate_first_n:, :]), dim=1)
 
         if self.provider_in_proj is not None:
@@ -253,11 +268,13 @@ class ParallelNoninvertibleModel(nn.Module):
 
         if self.provider_out_proj is not None:
             provider_output = self.provider_out_proj(provider_output)
-        
+
         inverter_input = provider_input # [b t e], all provider inputs need to be used for inversion tests
         inverted_output = self.inversion_decoder(inputs_embeds=inverter_input) # returns logits, not last hidden state
 
         parallel_x = self.parallel_encoder(inputs_embeds=client_input).last_hidden_state
+        if self.provider_out_proj is not None:
+            provider_output = self.provider_out_proj(provider_output)
 
         if self.no_provider_modules:
             combined_output = parallel_x # omits the provider modules, negative control

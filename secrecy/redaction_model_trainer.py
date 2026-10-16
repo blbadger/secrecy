@@ -27,13 +27,13 @@ data_root = os.getenv('DATA_ROOT')
 
 device = 'cuda' if torch.cuda.is_available else 'cpu'
 
-def add_random_redactions(example, weights=[0.6, 0.4]):
+def add_random_redactions(example, weights=[0.1, 0.9]):
 	input_length = len(example['input_ids'])
 	redaction_tensor = torch.multinomial(torch.tensor(weights), input_length, replacement=True)
 	example['redactions'] = redaction_tensor
 	return example
 
-def add_prefix_redactions(example, tokens_redacted=256):
+def add_prefix_redactions(example, tokens_redacted=128):
 	input_length = len(example['input_ids'])
 	example['redactions'] = torch.cat((torch.ones(tokens_redacted), torch.zeros(input_length-tokens_redacted))).to(torch.long)
 	return example
@@ -64,7 +64,7 @@ provider_encoder_model = provider_encoder_model.model
 # user encoder init
 context_length = 512
 dim = 512
-n_layers = 3
+n_layers = 1
 n_heads = 4
 encoder_config_kwargs = { 
 	'hidden_size': encoder_dim,
@@ -79,7 +79,7 @@ user_encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 user_encoder_model = LlamaModel(user_encoder_configuration)
 
 # combined decoder init
-n_layers = 4
+n_layers = 2
 n_heads = 4
 decoder_dim = 512
 decoder_config_kwargs = { 
@@ -105,7 +105,7 @@ model = PostRedactionModel(
 	n_vocab=vocab_size,
 	no_redaction=False,
 	mask_redaction_attention=True,
-	skip_first_n_loss=256
+	skip_first_n_loss=None
 	)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
@@ -129,7 +129,7 @@ if torch.cuda.is_available():
 batch_size = global_batch_size // n_devices
 
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_prefix_redaction_attnmasked_256l\
+output_dir = f'{checkpoint_root}/fineweb_prefix_s128_redaction\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\
@@ -162,7 +162,6 @@ trainer = transformers.Trainer(
 	args=training_arguments,
 	data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False)
 )
-
 
 # save driver code snapshot in checkpoint dir
 code_path = os.path.abspath(__file__)

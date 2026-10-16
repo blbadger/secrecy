@@ -180,6 +180,8 @@ def load_checkpoint(
     unwrapped_model = accelerator.unwrap_model(model)
     unwrapped_inverter = accelerator.unwrap_model(inverter)
 
+    unwrapped_model = unwrapped_model._orig_mod if is_compiled_module(unwrapped_model) else unwrapped_model
+    unwrapped_inverter = unwrapped_inverter._orig_mod if is_compiled_module(unwrapped_inverter) else unwrapped_inverter
     load_model(unwrapped_model, os.path.join(checkpoint_dir, "clm_model.safetensors"))
     load_model(unwrapped_inverter, os.path.join(checkpoint_dir, "inverter.safetensors"))
 
@@ -286,6 +288,19 @@ def train_noninvertible_clm(
     eval_logger = EvalLogger(
         enabled=accelerator.is_main_process,
         resume_path=os.path.join(checkpoint_dir, f"step_{start_step}", "eval_log.jsonl") if start_step else None,
+    )
+    checkpoint = checkpoint_dir + f'/step_{start_step}'
+    print (checkpoint)
+    if start_step > 0:
+        load_checkpoint(
+        accelerator, 
+        model, 
+        inverter, 
+        model_optimizer, 
+        inverter_optimizer, 
+        clm_scheduler, 
+        inverter_scheduler, 
+        checkpoint
     )
     toggle_grads(inverter, bool=False)
     global_step = start_step
@@ -507,7 +522,8 @@ def init_noninvertible_parallelmodel(
     provider_model_layers=16, 
     client_encoder_layers=3,
     unified_decoder_layers=4,
-    n_heads=4
+    n_heads=4,
+    embeddings_to_unroll=1
     ):
     # inversion model specification: must be bidirectional if the input token indices are not reversed
     config_kwargs = {
@@ -587,6 +603,7 @@ def init_noninvertible_parallelmodel(
         n_tokens_obfuscated=n_tokens_obfuscated,
         compress_provider_factor=compress_provider_factor,
         route_method=route_method,
+        embeddings_to_unroll=embeddings_to_unroll
     )
     return model, inverter
 
@@ -600,7 +617,7 @@ def init_dualroot_parallelmodel(
     context_length=512, 
     decoder_dim=512, 
     inverter_layers=8, 
-    secret_encoder_layers=3,
+    secret_encoder_layers=4,
     provider_model_layers=16, 
     client_encoder_layers=3,
     unified_decoder_layers=4,
@@ -696,17 +713,18 @@ if __name__ == '__main__':
     checkpoint_root = os.getenv('CHECKPOINT_ROOT')
     data_root = os.getenv('DATA_ROOT')
 
-
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
-    # n_tokens_obfuscated = 128
-    # compress_provider_factor = 1
-    # route_method = 'unroll_embedding'
-    # client_dim = 128
-    # model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim)
+    n_tokens_obfuscated = 384
+    compress_provider_factor = 1
+    route_method = 'unroll_embedding'
+    client_dim = 512
+    embeddings_to_unroll = 3
+    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
+
 
     # compress_secret_factor = 1
     # unroll_secret_embedding = True
@@ -720,8 +738,8 @@ if __name__ == '__main__':
     #     mask_secret_tokens=mask_secret_tokens
     # )
 
-    n_tokens_obfuscated = 512
-    model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=False)
+#     n_tokens_obfuscated = 512
+#     model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=False)
 
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
@@ -779,7 +797,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_mixer_resid_noni_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/parallelmodel_s{n_tokens_obfuscated}_3unroll_noni_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -802,9 +820,10 @@ if __name__ == '__main__':
         inverter_scheduler=inverter_scheduler, 
         checkpoint_dir=checkpoint_dir,
         steps=num_steps,
-        train_clm = True,
-        train_inverter = False,
-        train_for_noninv = False,
-        n_tokens_obfuscated=n_tokens_obfuscated
+        train_clm=True,
+        train_inverter=False,
+        train_for_noninv=False,
+        n_tokens_obfuscated=n_tokens_obfuscated,
+        start_step=120000
     )   
 
