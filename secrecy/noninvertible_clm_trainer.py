@@ -491,6 +491,8 @@ def init_noninvertible_mixer(
         split_layer=8,
         mixer_residual=mixer_residual
         )
+    # TODO: propagate up
+    model.mixerblocks[7].mixer_residual = False
 
     inverter = LanguageMixer(
         vocab_size, 
@@ -723,7 +725,7 @@ if __name__ == '__main__':
     route_method = 'unroll_embedding'
     client_dim = 512
     embeddings_to_unroll = 3
-    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
+    #model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
 
 
     # compress_secret_factor = 1
@@ -738,8 +740,8 @@ if __name__ == '__main__':
     #     mask_secret_tokens=mask_secret_tokens
     # )
 
-#     n_tokens_obfuscated = 512
-#     model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=False)
+    n_tokens_obfuscated = 512
+    model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True)
 
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
@@ -797,7 +799,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/parallelmodel_s{n_tokens_obfuscated}_3unroll_noni_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_mixer_nomidresid_noni_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
