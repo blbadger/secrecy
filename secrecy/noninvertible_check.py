@@ -25,7 +25,7 @@ from tqdm import tqdm
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
 from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleModel
-from noninvertible_clm_trainer import init_noninvertible_parallelmodel, init_noninvertible_transformer, init_dualroot_parallelmodel, unwrap_state_dict, load_checkpoint, toggle_grads, train_noninvertible_clm
+from noninvertible_clm_trainer import init_noninvertible_parallelmodel, init_noninvertible_transformer, init_dualroot_parallelmodel, unwrap_state_dict, load_checkpoint, toggle_grads, train_noninvertible_clm, init_noninvertible_mixer
 
 from secret_decoder import SecretDecoder
 from tqdm import tqdm
@@ -58,11 +58,13 @@ tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
 
-n_tokens_obfuscated = 384
+n_tokens_obfuscated = 512
 compress_provider_factor=1
 route_method='unroll_embedding'
-model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
+#model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
 
+
+model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True)
 original_inverter_state = inverter.state_dict()
 #compress_secret_factor = 1
 #unroll_secret_embedding = False
@@ -78,7 +80,7 @@ original_inverter_state = inverter.state_dict()
 
 
 # load_model, train inverter from scratch (model remains frozen)
-model_checkpoint_path = f"{checkpoint_root}/parallelmodel_s384_unroll_noni_b64x2/step_200000/clm_model.safetensors"
+model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_nomidresid_noni_b32x4/step_20000/clm_model.safetensors"
 model_state_dict = load_file(model_checkpoint_path)
 
 # deals with unwrapped modules
@@ -142,7 +144,7 @@ model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dat
 loss_fn = torch.nn.CrossEntropyLoss()
 
 n_devices = accelerator.num_processes
-output_dir = f"{data_root}/noninvertible_check_unrolled_s384_noni_b{batch_size}x{n_devices}"
+output_dir = f"{data_root}/noninvertible_check_mixer_nomidresid_noni_b{batch_size}x{n_devices}"
 print ('Model loaded, inverter initialized, training inverter only')
 
 # save driver code snapshot in checkpoint dir

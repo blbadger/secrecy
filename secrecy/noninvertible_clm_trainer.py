@@ -222,7 +222,7 @@ def evaluate_noninvertibility(
             if isinstance(unwrap_model(noninvertible_clm), DualRootParallelModel):
                 inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
             elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer):
-                inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # loss on all inputs
+                inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # loss on all inputs
             else:
                 inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
                 inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
@@ -826,6 +826,5 @@ if __name__ == '__main__':
         train_inverter=False,
         train_for_noninv=False,
         n_tokens_obfuscated=n_tokens_obfuscated,
-        start_step=120000
     )   
 
