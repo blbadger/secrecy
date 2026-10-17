@@ -729,7 +729,7 @@ if __name__ == '__main__':
     compress_provider_factor = 1
     route_method = 'unroll_embedding'
     client_dim = 512
-    embeddings_to_unroll = 3
+    embeddings_to_unroll = 12
     #model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
 
     # compress_secret_factor = 1
@@ -803,7 +803,11 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
+<<<<<<< HEAD
     checkpoint_dir = f"{data_root}/noninvertible_mixer_no4midresid_noni_b{batch_size}x{n_devices}"
+=======
+    checkpoint_dir = f"{data_root}/parallelmodel_s{n_tokens_obfuscated}_12unroll_noni_b{batch_size}x{n_devices}"
+>>>>>>> a91ff04 (minor updates)
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
