@@ -183,6 +183,7 @@ class MLPMixerBlock(nn.Module):
 		self.patch_ff = FeedForward(dim)
 		self.conv = nn.Linear(length, length)
 		self.mixer_residual = mixer_residual
+		self.mlp_residual = mlp_residual
 
 
 	def forward(self, x: torch.tensor):
