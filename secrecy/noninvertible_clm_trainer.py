@@ -496,7 +496,7 @@ def init_noninvertible_mixer(
         mixer_residual=mixer_residual
         )
     # TODO: propagate up
-    for i in range(4, 8):
+    for i in range(3, 8):
         model.mixerblocks[i].mixer_residual = False
 
     inverter = InverterMixer(
@@ -803,11 +803,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-<<<<<<< HEAD
-    checkpoint_dir = f"{data_root}/noninvertible_mixer_no4midresid_noni_b{batch_size}x{n_devices}"
-=======
-    checkpoint_dir = f"{data_root}/parallelmodel_s{n_tokens_obfuscated}_12unroll_noni_b{batch_size}x{n_devices}"
->>>>>>> a91ff04 (minor updates)
+    checkpoint_dir = f"{data_root}/noninvertible_mixer_no3midresid_noni_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -834,6 +830,5 @@ if __name__ == '__main__':
         train_inverter=False,
         train_for_noninv=False,
         n_tokens_obfuscated=n_tokens_obfuscated,
-        start_step=20000
     )   
 

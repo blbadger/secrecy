@@ -80,7 +80,7 @@ original_inverter_state = inverter.state_dict()
 
 
 # load_model, train inverter from scratch (model remains frozen)
-model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_nomidresid_noni_b32x4/step_200000/clm_model.safetensors"
+model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_no4midresid_noni_b64x2/step_200000/clm_model.safetensors"
 model_state_dict = load_file(model_checkpoint_path)
 
 # deals with unwrapped modules
@@ -144,11 +144,7 @@ model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dat
 loss_fn = torch.nn.CrossEntropyLoss()
 
 n_devices = accelerator.num_processes
-<<<<<<< HEAD
-output_dir = f"{data_root}/noninvertible_check_mixer_nomidresid_noni_b{batch_size}x{n_devices}"
-=======
-output_dir = f"{data_root}/noninvertible_check_randominp_s{n_tokens_obfuscated}_b{batch_size}x{n_devices}"
->>>>>>> b8de099 (minor updates)
+output_dir = f"{data_root}/noninvertible_check_mixer_4nomidresid_noni_b{batch_size}x{n_devices}"
 print ('Model loaded, inverter initialized, training inverter only')
 
 # save driver code snapshot in checkpoint dir
