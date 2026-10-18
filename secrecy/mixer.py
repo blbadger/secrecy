@@ -281,7 +281,7 @@ class InverterMixer(nn.Module):
 		if labels is not None:
 			if labels.dim() > 2:
 				labels = rearrange(labels, 'b p t -> b (p t)')
-			loss = self.cel(logits, labels)
+			loss = self.cel(output, labels)
 		else:
 			loss = 0
 		return loss, output
