@@ -493,7 +493,7 @@ def init_noninvertible_mixer(
         )
     # TODO: propagate up
     model.mixerblocks[7].mixer_residual = False
-
+    model.mixerblocks[6].mixer_residual = False
     inverter = LanguageMixer(
         vocab_size, 
         decoder_dim, 
@@ -799,7 +799,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_mixer_nomidresid_noni_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_mixer_2nomidresid_noni_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
