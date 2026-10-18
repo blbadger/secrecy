@@ -67,7 +67,7 @@ class NonInvertibleTransformer(nn.Module):
             inversion_loss = self.cel(inverted_output, labels)  # we want to maximize CEL for inversion
 
         else:
-            clm_loss = 0
+            clm_loss = 0    
             inversion_loss = 0
 
         if self.clm_loss_only:

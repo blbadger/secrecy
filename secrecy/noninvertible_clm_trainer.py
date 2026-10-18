@@ -33,7 +33,7 @@ from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs, is_compiled_module
 from transformers import get_linear_schedule_with_warmup
 from accelerate.utils import TorchDynamoPlugin
-from mixer import LanguageMixer, SplitLanguageMixer
+from mixer import LanguageMixer, SplitLanguageMixer, InverterMixer
 from safetensors.torch import save_file, save_model, load_model, load_file
 import os
 
@@ -290,7 +290,6 @@ def train_noninvertible_clm(
         resume_path=os.path.join(checkpoint_dir, f"step_{start_step}", "eval_log.jsonl") if start_step else None,
     )
     checkpoint = checkpoint_dir + f'/step_{start_step}'
-    print (checkpoint)
     if start_step > 0:
         load_checkpoint(
         accelerator, 
@@ -494,7 +493,7 @@ def init_noninvertible_mixer(
     # TODO: propagate up
     model.mixerblocks[7].mixer_residual = False
     model.mixerblocks[6].mixer_residual = False
-    inverter = LanguageMixer(
+    inverter = InverterMixer(
         vocab_size, 
         decoder_dim, 
         model_layers//2, # 8 layer decoder for 8 layer encoder 
@@ -826,5 +825,6 @@ if __name__ == '__main__':
         train_inverter=False,
         train_for_noninv=False,
         n_tokens_obfuscated=n_tokens_obfuscated,
+        start_step=20000
     )   
 
