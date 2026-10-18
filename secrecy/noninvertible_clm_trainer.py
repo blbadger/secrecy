@@ -275,7 +275,9 @@ def train_noninvertible_clm(
         train_for_noninv=True,
         evaluate_every=10000,
         log_every=500,
-        n_tokens_obfuscated=128
+        n_tokens_obfuscated=128,
+        alpha=1.,
+        beta=1.
     ):
     noninvertible_clm.train()
     inverter.train()
@@ -320,7 +322,7 @@ def train_noninvertible_clm(
                 with accelerator.autocast():
                     noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
                 if train_for_noninv:
-                    total_noninv_loss = noninvertible_clm_loss - noninvertible_inversion_loss
+                    total_noninv_loss = alpha*noninvertible_clm_loss - beta*noninvertible_inversion_loss
                 else:
                     total_noninv_loss = noninvertible_clm_loss
                 noninvertible_clm_optimizer.zero_grad()
@@ -491,7 +493,8 @@ def init_noninvertible_mixer(
         mixer_residual=mixer_residual
         )
     # TODO: propagate up
-    model.mixerblocks[7].mixer_residual = False
+    for i in range(4, 8):
+        model.mixerblocks[i].mixer_residual = False
 
     inverter = InverterMixer(
         vocab_size, 
@@ -519,7 +522,7 @@ def init_noninvertible_parallelmodel(
     decoder_dim=512, 
     client_dim=512,
     inverter_layers=8, 
-    unified_encoder_layers=4,
+    unified_encoder_layers=1,
     provider_model_layers=16, 
     client_encoder_layers=3,
     unified_decoder_layers=4,
@@ -726,7 +729,6 @@ if __name__ == '__main__':
     embeddings_to_unroll = 3
     #model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
 
-
     # compress_secret_factor = 1
     # unroll_secret_embedding = True
     # mask_secret_tokens = True
@@ -798,7 +800,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_mixer_nomidresid_noni_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_mixer_no4midresid_noni_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
