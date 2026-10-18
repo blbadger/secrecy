@@ -290,7 +290,6 @@ def train_noninvertible_clm(
         resume_path=os.path.join(checkpoint_dir, f"step_{start_step}", "eval_log.jsonl") if start_step else None,
     )
     checkpoint = checkpoint_dir + f'/step_{start_step}'
-    print (checkpoint)
     if start_step > 0:
         load_checkpoint(
         accelerator, 
@@ -826,5 +825,6 @@ if __name__ == '__main__':
         train_inverter=False,
         train_for_noninv=False,
         n_tokens_obfuscated=n_tokens_obfuscated,
+        start_step=20000
     )   
 

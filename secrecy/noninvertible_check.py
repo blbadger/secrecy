@@ -80,7 +80,7 @@ original_inverter_state = inverter.state_dict()
 
 
 # load_model, train inverter from scratch (model remains frozen)
-model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_nomidresid_noni_b32x4/step_20000/clm_model.safetensors"
+model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_nomidresid_noni_b32x4/step_200000/clm_model.safetensors"
 model_state_dict = load_file(model_checkpoint_path)
 
 # deals with unwrapped modules
