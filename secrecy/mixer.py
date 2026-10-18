@@ -247,6 +247,44 @@ class LanguageMixer(nn.Module):
 			loss = 0
 		return loss, output
 
+class InverterMixer(nn.Module):
+
+	def __init__(self, n_vocab, dim, depth, length, tie_weights=False, n_heads=0, kernel=1):
+		super().__init__()
+		self.wte = nn.Embedding(n_vocab, dim)
+		self.mixerblocks = nn.ModuleList(
+			[MixerBlock(
+				dim = dim,
+				length = length,
+				expand_conv = False,
+				n_heads = n_heads,
+				kernel = kernel
+				)
+			for i in range(depth)]
+			)
+		self.lm_head = nn.Linear(dim, n_vocab, bias=False)
+		if tie_weights:
+			self.wte.weight = self.lm_head.weight
+		self.cel = nn.CrossEntropyLoss()
+
+	def forward(self, input_ids=None, inputs_embeds=None, labels=None, **kwargs):
+		if inputs_embeds is None:
+			x = input_ids
+			x = self.wte(x)
+		else:
+			x = inputs_embeds
+		for i, block in enumerate(self.mixerblocks):
+			x = block(x)
+		output = self.lm_head(x)
+		
+		output = rearrange(output, 'b t e -> b e t')
+		if labels is not None:
+			if labels.dim() > 2:
+				labels = rearrange(labels, 'b p t -> b (p t)')
+			loss = self.cel(logits, labels)
+		else:
+			loss = 0
+		return loss, output
 
 class SplitLanguageMixer(nn.Module):
 
