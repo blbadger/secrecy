@@ -344,8 +344,6 @@ def train_noninvertible_clm(
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
                     elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer):
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # loss on all inputs
-                        _, inverter_output = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # loss on all inputs
-                        inverter_loss = 
                     else:
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
                         ignore_index = -100
