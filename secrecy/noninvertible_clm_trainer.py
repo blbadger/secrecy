@@ -33,7 +33,7 @@ from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs, is_compiled_module
 from transformers import get_linear_schedule_with_warmup
 from accelerate.utils import TorchDynamoPlugin
-from mixer import LanguageMixer, SplitLanguageMixer
+from mixer import LanguageMixer, SplitLanguageMixer, InverterMixer
 from safetensors.torch import save_file, save_model, load_model, load_file
 import os
 
@@ -344,6 +344,8 @@ def train_noninvertible_clm(
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
                     elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer):
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # loss on all inputs
+                        _, inverter_output = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # loss on all inputs
+                        inverter_loss = 
                     else:
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
                         ignore_index = -100
@@ -493,7 +495,7 @@ def init_noninvertible_mixer(
     # TODO: propagate up
     model.mixerblocks[7].mixer_residual = False
 
-    inverter = LanguageMixer(
+    inverter = InverterMixer(
         vocab_size, 
         decoder_dim, 
         model_layers//2, # 8 layer decoder for 8 layer encoder 
