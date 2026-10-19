@@ -806,7 +806,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_mixer_noallresid_noni_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_mixer_nomidresid_freeze_noni_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
