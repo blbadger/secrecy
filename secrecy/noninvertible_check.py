@@ -63,8 +63,8 @@ compress_provider_factor=1
 route_method='unroll_embedding'
 #model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
 
-
-model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True)
+noninv_layers=1
+model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True, noninv_layers=noninv_layers)
 original_inverter_state = inverter.state_dict()
 #compress_secret_factor = 1
 #unroll_secret_embedding = False
@@ -80,12 +80,12 @@ original_inverter_state = inverter.state_dict()
 
 
 # load_model, train inverter from scratch (model remains frozen)
-model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_nomidresid_noni_b32x4/step_200000/clm_model.safetensors"
-model_state_dict = load_file(model_checkpoint_path)
+#model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_noallresid_noni_b32x4/step_20000/clm_model.safetensors"
+#model_state_dict = load_file(model_checkpoint_path)
 
 # deals with unwrapped modules
-remapped_state_dict = {remap_keys(k): v for k, v in model_state_dict.items()}
-model.load_state_dict(remapped_state_dict, strict=False) # inverter may not match
+#remapped_state_dict = {remap_keys(k): v for k, v in model_state_dict.items()}
+#model.load_state_dict(remapped_state_dict, strict=False) # inverter may not match
 inverter.load_state_dict(original_inverter_state)
 
 train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
@@ -105,7 +105,7 @@ model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
 
 num_steps = 200000
-total_training_steps = num_steps
+total_training_steps = num_steps * num_gpus
 
 model_scheduler = get_linear_schedule_with_warmup(
     model_optimizer,
@@ -144,7 +144,7 @@ model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dat
 loss_fn = torch.nn.CrossEntropyLoss()
 
 n_devices = accelerator.num_processes
-output_dir = f"{data_root}/noninvertible_check_mixer_nomidresid_noni_b{batch_size}x{n_devices}"
+output_dir = f"{data_root}/noninvertible_check_mixer_noallresid_noni_b{batch_size}x{n_devices}"
 print ('Model loaded, inverter initialized, training inverter only')
 
 # save driver code snapshot in checkpoint dir

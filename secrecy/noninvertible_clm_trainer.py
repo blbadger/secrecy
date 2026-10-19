@@ -275,7 +275,9 @@ def train_noninvertible_clm(
         train_for_noninv=True,
         evaluate_every=10000,
         log_every=500,
-        n_tokens_obfuscated=128
+        n_tokens_obfuscated=128,
+        alpha=1.,
+        beta=0.01
     ):
     noninvertible_clm.train()
     inverter.train()
@@ -320,7 +322,7 @@ def train_noninvertible_clm(
                 with accelerator.autocast():
                     noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
                 if train_for_noninv:
-                    total_noninv_loss = noninvertible_clm_loss - noninvertible_inversion_loss
+                    total_noninv_loss = alpha*noninvertible_clm_loss - beta*noninvertible_inversion_loss
                 else:
                     total_noninv_loss = noninvertible_clm_loss
                 noninvertible_clm_optimizer.zero_grad()
@@ -479,7 +481,8 @@ def init_noninvertible_mixer(
         inverter_layers=8, 
         model_layers=16, 
         n_heads=4,
-        mixer_residual=False
+        mixer_residual=False,
+        noninv_layers=4
     ):
     model = SplitLanguageMixer(
         vocab_size, 
@@ -491,7 +494,9 @@ def init_noninvertible_mixer(
         mixer_residual=mixer_residual
         )
     # TODO: propagate up
-    model.mixerblocks[7].mixer_residual = False
+    for i in range(8-noninv_layers, 8):
+        model.mixerblocks[i].mixer_residual = False
+        #model.mixerblocks[i].mlp_residual = False
 
     inverter = InverterMixer(
         vocab_size, 
@@ -740,7 +745,9 @@ if __name__ == '__main__':
     # )
 
     n_tokens_obfuscated = 512
-    model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True)
+    decoder_dim = 512
+    noninv_layers=1
+    model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, decoder_dim=decoder_dim, mixer_residual=True, noninv_layers=noninv_layers)
 
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
@@ -798,7 +805,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_mixer_nomidresid_noni_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_mixer_noallresid_noni_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -825,6 +832,6 @@ if __name__ == '__main__':
         train_inverter=False,
         train_for_noninv=False,
         n_tokens_obfuscated=n_tokens_obfuscated,
-        start_step=20000
+        #start_step=20000
     )   
 
