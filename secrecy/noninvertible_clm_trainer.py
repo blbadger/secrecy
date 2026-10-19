@@ -277,7 +277,7 @@ def train_noninvertible_clm(
         log_every=500,
         n_tokens_obfuscated=128,
         alpha=1.,
-        beta=0.01
+        beta=1.
     ):
     noninvertible_clm.train()
     inverter.train()
@@ -496,6 +496,7 @@ def init_noninvertible_mixer(
     # TODO: propagate up
     for i in range(8-noninv_layers, 8):
         model.mixerblocks[i].mixer_residual = False
+        toggle_grads(model.mixerblocks[i], False)
         #model.mixerblocks[i].mlp_residual = False
 
     inverter = InverterMixer(
