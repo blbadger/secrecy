@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from einops import rearrange
 import transformers
-from transformers import AutoTokenizer, LlamaForCausalLM, LlamaModel
+from transformers import AutoTokenizer,LlamaConfig, LlamaForCausalLM, LlamaModel
 import datasets
 from safetensors.torch import load_model
 from datasets import load_from_disk
@@ -137,21 +137,22 @@ if __name__ == "__main__":
     train_dataset = load_from_disk(train_path, keep_in_memory=None).take(2000000)
     test_dataset = load_from_disk(test_path, keep_in_memory=None).take(4000)
 
+    layers = 4
     dims = [16, 32, 64, 128, 256, 512]
     for dim in dims:
-        output_dir = f"{checkpoint_root}/fineweb_copy512_{dim}_n{layers}_b16x4"
+        output_dir = f"{checkpoint_root}/fineweb_copy512_{dim}_n{4}_b16x4"
         encoder_config_kwargs = { 
             'hidden_size': dim,
             'intermediate_size': 4*dim,
-            'num_hidden_layers': inverter_layers,
-            'num_attention_heads': n_heads,
+            'num_hidden_layers': layers,
+            'num_attention_heads': 4,
             'vocab_size': n_vocab,
             'max_position_embeddings': 1024
         }
 
         # inverter model definition
-        configuration = LlamaConfig(**encoder_config_kwargs)
-        model = LlamaForCausalLM(configc)
+        config = LlamaConfig(**encoder_config_kwargs)
+        model = LlamaForCausalLM(config)
 
         print(len(train_dataset), len(test_dataset))
         print (len(train_dataset[0]['input_ids']), tokenizer.decode(train_dataset[0]['input_ids']))
@@ -172,8 +173,6 @@ if __name__ == "__main__":
             eval_strategy="steps",
             output_dir=output_dir,
             optim="adamw_torch",
-            overwrite_output_dir=True,
-            save_safetensors=True,
             max_steps=10000,
             torch_compile=True,
         )
