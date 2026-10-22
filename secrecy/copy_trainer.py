@@ -43,7 +43,6 @@ class CopyModel(nn.Module):
         global all_hammings
         if not self.training:
             all_hammings.append(hamming(logits, labels).item())
-        print (f'Accuracy: {sum(all_hammings)/ len(all_hammings)}')
 
         if self.training and all_hammings: 
             print (f'Accuracy: {sum(all_hammings)/ len(all_hammings)}')
@@ -153,6 +152,7 @@ if __name__ == "__main__":
         # inverter model definition
         config = LlamaConfig(**encoder_config_kwargs)
         model = LlamaForCausalLM(config)
+        model = CopyModel(model, copy=True)
 
         print(len(train_dataset), len(test_dataset))
         print (len(train_dataset[0]['input_ids']), tokenizer.decode(train_dataset[0]['input_ids']))
