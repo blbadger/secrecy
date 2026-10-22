@@ -21,6 +21,7 @@ class CopyModel(nn.Module):
     def __init__(
         self,
         model,
+        vocab_size=8000
         copy=True
     ):
 
@@ -30,6 +31,7 @@ class CopyModel(nn.Module):
         # Define loss function
         self.loss_fn = nn.CrossEntropyLoss()
         self.copy = copy
+        self.vocab_size = vocab_size
 
     def forward(self, input_ids, labels=None, **kwargs):
         if self.copy:
@@ -152,7 +154,7 @@ if __name__ == "__main__":
         # inverter model definition
         config = LlamaConfig(**encoder_config_kwargs)
         model = LlamaForCausalLM(config)
-        model = CopyModel(model, copy=True)
+        model = CopyModel(model, copy=True, vocab_size=n_vocab)
 
         print(len(train_dataset), len(test_dataset))
         print (len(train_dataset[0]['input_ids']), tokenizer.decode(train_dataset[0]['input_ids']))
