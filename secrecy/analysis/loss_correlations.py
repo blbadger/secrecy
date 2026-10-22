@@ -12,8 +12,8 @@ df = pd.DataFrame()
 df['NI Loss'] = ni_loss
 df['CLM Loss'] = clm_loss
 sns.regplot(df, x='CLM Loss', y='NI Loss', ci=None)
-plt.ylabel('Invertibility Loss')
-plt.xlabel('Causal Loss')
+plt.ylabel('Invertibility Loss', size='large')
+plt.xlabel('Causal Loss', size='large')
 plt.show()
 plt.close()
 
