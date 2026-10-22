@@ -21,7 +21,7 @@ class CopyModel(nn.Module):
     def __init__(
         self,
         model,
-        copy=False,
+        copy=True
     ):
 
         super().__init__()
@@ -30,7 +30,6 @@ class CopyModel(nn.Module):
         # Define loss function
         self.loss_fn = nn.CrossEntropyLoss()
         self.copy = copy
-
 
     def forward(self, input_ids, labels=None, **kwargs):
         if self.copy:
@@ -135,15 +134,12 @@ if __name__ == "__main__":
 
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c1024"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c1024"
-    
-    output_dir = f"{checkpoint_root}/fineweb_copy512_{dim}_n{layers}_b16x4"
-
-    train_dataset = load_from_disk(train_path, keep_in_memory=None).take(2000000).batch(batch_size=4, num_proc=8).map(debatch_dataset, num_proc=8)
-    test_dataset = load_from_disk(test_path, keep_in_memory=None).batch(batch_size=4, num_proc=8).map(debatch_dataset, num_proc=8).filter(lambda x: x['input_ids'][-1] != 1, num_proc=8).take(4000)
+    train_dataset = load_from_disk(train_path, keep_in_memory=None).take(2000000)
+    test_dataset = load_from_disk(test_path, keep_in_memory=None).take(4000)
 
     dims = [16, 32, 64, 128, 256, 512]
     for dim in dims:
-        
+        output_dir = f"{checkpoint_root}/fineweb_copy512_{dim}_n{layers}_b16x4"
         encoder_config_kwargs = { 
             'hidden_size': dim,
             'intermediate_size': 4*dim,
@@ -171,7 +167,7 @@ if __name__ == "__main__":
             logging_steps=100,
             eval_steps=10000,
             save_steps=10000,
-            learning_rate=5e-4,
+            learning_rate=2e-4,
             fp16=True,
             eval_strategy="steps",
             output_dir=output_dir,
