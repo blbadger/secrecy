@@ -490,13 +490,14 @@ def init_noninvertible_mixer(
         model_layers,
         context_length,
         n_heads=n_heads,
-        split_layer=8,
+        split_layer=1,
         mixer_residual=mixer_residual
         )
     # TODO: propagate up
-    for i in range(8-noninv_layers, 8):
+    for i in range(1):
         model.mixerblocks[i].mixer_residual = False
         toggle_grads(model.mixerblocks[i], False)
+        toggle_grads(model.wte, False)
         #model.mixerblocks[i].mlp_residual = False
 
     inverter = InverterMixer(
@@ -833,6 +834,6 @@ if __name__ == '__main__':
         train_inverter=False,
         train_for_noninv=False,
         n_tokens_obfuscated=n_tokens_obfuscated,
-        #start_step=20000
+        #start_step=30000
     )   
 
