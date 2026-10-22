@@ -295,7 +295,7 @@ def train_noninvertible_clm(
     if start_step > 0:
         load_checkpoint(
         accelerator, 
-        model, 
+        noninvertible_clm, 
         inverter, 
         model_optimizer, 
         inverter_optimizer, 
