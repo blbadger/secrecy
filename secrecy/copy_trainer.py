@@ -1,0 +1,210 @@
+import torch
+import torch.nn as nn
+from einops import rearrange
+import transformers
+from transformers import AutoTokenizer, LlamaForCausalLM, LlamaModel
+import datasets
+from safetensors.torch import load_model
+from datasets import load_from_disk
+import mlflow
+import os
+from dotenv import load_dotenv
+import shutil
+import json
+
+all_hammings = []
+hamming_log =[]
+
+
+class CopyModel(nn.Module):
+
+    def __init__(
+        self,
+        model,
+        copy=False,
+    ):
+
+        super().__init__()
+        self.model = model
+
+        # Define loss function
+        self.loss_fn = nn.CrossEntropyLoss()
+        self.copy = copy
+
+
+    def forward(self, input_ids, labels=None, **kwargs):
+        if self.copy:
+            input_ids = copy_dataset(input_ids)
+            if labels is not None:
+                labels = copy_labels(labels) # masks first half
+        labels = labels[:, 1:].contiguous()
+        logits = self.model(input_ids=input_ids).logits
+        logits = logits[:, :-1].contiguous()
+
+        global all_hammings
+        if not self.training:
+            all_hammings.append(hamming(logits, labels).item())
+        print (f'Accuracy: {sum(all_hammings)/ len(all_hammings)}')
+
+        if self.training and all_hammings: 
+            print (f'Accuracy: {sum(all_hammings)/ len(all_hammings)}')
+            global hamming_log; hamming_log.append(sum(all_hammings)/ len(all_hammings))
+            all_hammings = []
+
+        if labels is not None:
+            logits = logits.view(-1, self.vocab_size)
+            labels = labels.view(-1)
+
+            loss = self.loss_fn(logits, labels)
+            return loss, logits
+
+        else:
+            return logits
+
+@torch.no_grad()
+def hamming(model_output, labels):
+    total_metric = 0
+    #ignore_list = [tokenizer.pad_token, tokenizer.encode(tokenizer.eos_token)[-1]]
+    input_tokens = labels
+    generated_tokens = torch.argmax(model_output, dim=-1)
+    nonpad_tokens = torch.where(labels != -100, 1, 0)
+    equal_tokens = torch.where(generated_tokens == labels, 1, 0) & nonpad_tokens
+    average_metric = torch.sum(equal_tokens) / torch.sum(nonpad_tokens)
+    return average_metric
+
+@torch.no_grad()
+def hamming_eval(model_output, labels):
+    total_metric = 0 
+    input_tokens = labels
+    generated_tokens = torch.argmax(model_output, dim=-1)
+    for i in range(len(generated_tokens)): # len(generated_tokens)
+        # expects tokens to be pre-flattened
+        assert len(input_tokens[i]) == len(generated_tokens[i])
+        count, card = 0, 0
+        pad_token = tokenizer.encode(tokenizer.pad_token)[-1] # will be [2]
+        for j in range(len(input_tokens[i])//2, len(input_tokens[i])): # starts at the half way point  
+            if input_tokens[i][j] == pad_token or input_tokens[i][j] == tokenizer.encode(tokenizer.eos_token)[-1]:
+                continue
+            else:
+                card += 1
+                if input_tokens[i][j] in generated_tokens[i][j]:
+                    count += 1
+        total_metric += (card - count) / card
+    average_metric = torch.tensor([total_metric / len(generated_tokens)])
+    return average_metric
+
+def copy_dataset(input_ids):
+    n_ctx = len(input_ids[0])
+    for i, input in enumerate(input_ids):
+        first_half = input[:n_ctx//2]
+        copied_halves = torch.cat((first_half, first_half))
+        input_ids[i] = copied_halves
+    return input_ids
+
+def copy_labels(labels):
+    n_ctx = len(labels[0])
+    for i, input in enumerate(labels):
+        first_half = input[:n_ctx//2]
+        pad_half = torch.ones(first_half.shape).to(device) * -100
+        halves = torch.cat((pad_half, first_half))
+        labels[i] = halves
+    return labels
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+def half_dataset(example):
+    half_length = len(example['input_ids'])
+    tokens = example['input_ids'][:half_length]
+    return {'input_ids': tokens}
+
+def debatch_dataset(example):
+    tokens = []
+    token_ls = example['input_ids']
+    for i in range(len(token_ls)):
+        tokens += token_ls[i]
+    return {'input_ids': tokens}
+
+if __name__ == "__main__":
+    load_dotenv()
+    checkpoint_root = os.getenv('CHECKPOINT_ROOT')
+    data_root = os.getenv('DATA_ROOT')
+    tokenizer = AutoTokenizer.from_pretrained(f"{data_root}/tokenizer_fineweb_8k")
+    tokenizer.pad_token = tokenizer.eos_token
+    n_vocab = len(tokenizer)
+    print("Vocab size: ", n_vocab)
+
+    train_path = f"{data_root}/fineweb-edu-tokenized-train-c1024"
+    test_path = f"{data_root}/fineweb-edu-tokenized-test-c1024"
+    
+    output_dir = f"{checkpoint_root}/fineweb_copy512_{dim}_n{layers}_b16x4"
+
+    train_dataset = load_from_disk(train_path, keep_in_memory=None).take(2000000).batch(batch_size=4, num_proc=8).map(debatch_dataset, num_proc=8)
+    test_dataset = load_from_disk(test_path, keep_in_memory=None).batch(batch_size=4, num_proc=8).map(debatch_dataset, num_proc=8).filter(lambda x: x['input_ids'][-1] != 1, num_proc=8).take(4000)
+
+    dims = [16, 32, 64, 128, 256, 512]
+    for dim in dims:
+        
+        encoder_config_kwargs = { 
+            'hidden_size': dim,
+            'intermediate_size': 4*dim,
+            'num_hidden_layers': inverter_layers,
+            'num_attention_heads': n_heads,
+            'vocab_size': n_vocab,
+            'max_position_embeddings': 1024
+        }
+
+        # inverter model definition
+        configuration = LlamaConfig(**encoder_config_kwargs)
+        model = LlamaForCausalLM(configc)
+
+        print(len(train_dataset), len(test_dataset))
+        print (len(train_dataset[0]['input_ids']), tokenizer.decode(train_dataset[0]['input_ids']))
+        mlflow.end_run()
+        print("training begun")
+        print(model)
+        training_arguments = transformers.TrainingArguments(
+            num_train_epochs=2,
+            per_device_train_batch_size=16,
+            per_device_eval_batch_size=16,
+            gradient_accumulation_steps=1,
+            warmup_steps=50,
+            logging_steps=100,
+            eval_steps=10000,
+            save_steps=10000,
+            learning_rate=5e-4,
+            fp16=True,
+            eval_strategy="steps",
+            output_dir=output_dir,
+            optim="adamw_torch",
+            overwrite_output_dir=True,
+            save_safetensors=True,
+            max_steps=10000,
+            torch_compile=True,
+        )
+
+        trainer = transformers.Trainer(
+            model=model,
+            train_dataset=train_dataset,
+            eval_dataset=test_dataset,
+            args=training_arguments,
+            data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
+        )
+
+        print (f'Output path: {output_dir}')
+        # save driver code snapshot in checkpoint dir 
+        code_path = os.path.abspath(__file__) 
+        if not os.path.isdir(output_dir): 
+            os.mkdir(output_dir) 
+        shutil.copy(code_path, output_dir)
+        torch._dynamo.config.cache_size_limit = 100 
+        model.train()
+        
+        trainer.train()
+        trainer.evaluate()
+        trainer.train()
+        log_path = output_dir + '/evaluation_accuracies.json'
+        print (f'Saving hamming log to {log_path}')
+        evaluation_accuracy = {"Accuracies": hamming_log}
+        with open(log_path, 'w') as f:
+            json.dump(evaluation_accuracy, f)
+        del model, trainer, 

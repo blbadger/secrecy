@@ -494,7 +494,7 @@ def init_noninvertible_mixer(
         mixer_residual=mixer_residual
         )
     # TODO: propagate up
-    for i in range(1):
+    for i in range(noninv_layers):
         model.mixerblocks[i].mixer_residual = False
         toggle_grads(model.mixerblocks[i], False)
         toggle_grads(model.wte, False)
