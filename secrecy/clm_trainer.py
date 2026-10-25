@@ -33,9 +33,9 @@ device = 'cuda' if torch.cuda.is_available else 'cpu'
 tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
-context_length = 512
-decoder_dim = 512
-n_layers = 16
+context_length = 1024
+decoder_dim = 64
+n_layers = 8
 n_heads = 4 
 clm_config_kwargs = { 
 	'hidden_size': decoder_dim,
@@ -55,14 +55,23 @@ def secrefy_input(input, s=128):
 		input['attention_mask'] = input['attention_mask'][s:]
 	return input
 
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
+def loss_mask_secret(input, s=256):
+	input_ids = torch.tensor(input['input_ids'])
+	input['labels'] = input_ids
+	input['labels'][:s] = torch.ones((s))	
+	input['labels'] = torch.where(input_ids==1, -100, input_ids)
+	input['labels'] = input['labels'].tolist()
+	return input
+
+
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c1024"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c1024"
 
 # load datasets and duplicate entries
-train_dataset = load_from_disk(train_path).map(secrefy_input, num_proc=12)
-test_dataset = load_from_disk(test_path).map(secrefy_input, num_proc=12)
+train_dataset = load_from_disk(train_path).map(loss_mask_secret, num_proc=12)
+test_dataset = load_from_disk(test_path).map(loss_mask_secret, num_proc=12)
 
-global_batch_size = 128
+global_batch_size = 64
 n_devices = 4
 
 # get number of devices (assumes that all visible devices are used for training)
@@ -71,7 +80,7 @@ if torch.cuda.is_available():
 
 batch_size = global_batch_size // n_devices
 
-output_dir = f'{checkpoint_root}/fineweb_transformer_s128\
+output_dir = f'{checkpoint_root}/fineweb_transformer_s256\
 _d{decoder_dim}\
 _n{n_layers}\
 _c{context_length}_b{batch_size}x{n_devices}'

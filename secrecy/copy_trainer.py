@@ -21,10 +21,9 @@ class CopyModel(nn.Module):
     def __init__(
         self,
         model,
-        vocab_size=8000
+        vocab_size=8000,
         copy=True
     ):
-
         super().__init__()
         self.model = model
 
@@ -38,13 +37,16 @@ class CopyModel(nn.Module):
             input_ids = copy_dataset(input_ids)
             if labels is not None:
                 labels = copy_labels(labels) # masks first half
-        labels = labels[:, 1:].contiguous()
-        logits = self.model(input_ids=input_ids).logits
-        logits = logits[:, :-1].contiguous()
+        
+        shift_labels = labels[:, 1:].contiguous()
+        logits = self.model(input_ids=input_ids).logits # shape b t e
+        logits = rearrange(logits, 'b t e -> b e t')
+        shift_logits = logits[..., :-1].contiguous()
 
         global all_hammings
         if not self.training:
-            all_hammings.append(hamming(logits, labels).item())
+            reshaped_logits = rearrange(shift_logits, 'b e t -> b t e')
+            all_hammings.append(hamming(reshaped_logits, shift_labels).item())
 
         if self.training and all_hammings: 
             print (f'Accuracy: {sum(all_hammings)/ len(all_hammings)}')
@@ -52,10 +54,7 @@ class CopyModel(nn.Module):
             all_hammings = []
 
         if labels is not None:
-            logits = logits.view(-1, self.vocab_size)
-            labels = labels.view(-1)
-
-            loss = self.loss_fn(logits, labels)
+            loss = self.loss_fn(shift_logits, shift_labels)
             return loss, logits
 
         else:
@@ -64,7 +63,6 @@ class CopyModel(nn.Module):
 @torch.no_grad()
 def hamming(model_output, labels):
     total_metric = 0
-    #ignore_list = [tokenizer.pad_token, tokenizer.encode(tokenizer.eos_token)[-1]]
     input_tokens = labels
     generated_tokens = torch.argmax(model_output, dim=-1)
     nonpad_tokens = torch.where(labels != -100, 1, 0)
@@ -72,42 +70,15 @@ def hamming(model_output, labels):
     average_metric = torch.sum(equal_tokens) / torch.sum(nonpad_tokens)
     return average_metric
 
-@torch.no_grad()
-def hamming_eval(model_output, labels):
-    total_metric = 0 
-    input_tokens = labels
-    generated_tokens = torch.argmax(model_output, dim=-1)
-    for i in range(len(generated_tokens)): # len(generated_tokens)
-        # expects tokens to be pre-flattened
-        assert len(input_tokens[i]) == len(generated_tokens[i])
-        count, card = 0, 0
-        pad_token = tokenizer.encode(tokenizer.pad_token)[-1] # will be [2]
-        for j in range(len(input_tokens[i])//2, len(input_tokens[i])): # starts at the half way point  
-            if input_tokens[i][j] == pad_token or input_tokens[i][j] == tokenizer.encode(tokenizer.eos_token)[-1]:
-                continue
-            else:
-                card += 1
-                if input_tokens[i][j] in generated_tokens[i][j]:
-                    count += 1
-        total_metric += (card - count) / card
-    average_metric = torch.tensor([total_metric / len(generated_tokens)])
-    return average_metric
-
 def copy_dataset(input_ids):
-    n_ctx = len(input_ids[0])
-    for i, input in enumerate(input_ids):
-        first_half = input[:n_ctx//2]
-        copied_halves = torch.cat((first_half, first_half))
-        input_ids[i] = copied_halves
+    half_length = len(input_ids[0])//2
+    input_ids = torch.cat((input_ids[:, :half_length], input_ids[:, :half_length]), dim=1)
     return input_ids
 
 def copy_labels(labels):
-    n_ctx = len(labels[0])
-    for i, input in enumerate(labels):
-        first_half = input[:n_ctx//2]
-        pad_half = torch.ones(first_half.shape).to(device) * -100
-        halves = torch.cat((pad_half, first_half))
-        labels[i] = halves
+    half_length = len(labels[0])//2
+    labels = torch.cat((labels[:, :half_length], labels[:, :half_length]), dim=1)
+    labels[:, :half_length] = torch.ones((labels[:, :half_length]).shape).to(labels.device).to(labels.dtype) * -100
     return labels
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -138,8 +109,8 @@ if __name__ == "__main__":
     train_dataset = load_from_disk(train_path, keep_in_memory=None).take(2000000)
     test_dataset = load_from_disk(test_path, keep_in_memory=None).take(4000)
 
-    layers = 4
-    dims = [16, 32, 64, 128, 256, 512]
+    layers = 1
+    dims = [8, 16, 32, 64, 128, 256, 512]
     for dim in dims:
         output_dir = f"{checkpoint_root}/fineweb_copy512_{dim}_n{4}_b16x4"
         encoder_config_kwargs = { 
@@ -156,7 +127,6 @@ if __name__ == "__main__":
         model = LlamaForCausalLM(config)
         model = CopyModel(model, copy=True, vocab_size=n_vocab)
 
-        print(len(train_dataset), len(test_dataset))
         print (len(train_dataset[0]['input_ids']), tokenizer.decode(train_dataset[0]['input_ids']))
         mlflow.end_run()
         print("training begun")
@@ -165,12 +135,11 @@ if __name__ == "__main__":
             num_train_epochs=2,
             per_device_train_batch_size=16,
             per_device_eval_batch_size=16,
-            gradient_accumulation_steps=1,
             warmup_steps=50,
             logging_steps=100,
-            eval_steps=10000,
+            eval_steps=100,
             save_steps=10000,
-            learning_rate=2e-4,
+            learning_rate=5e-4,
             fp16=True,
             eval_strategy="steps",
             output_dir=output_dir,
@@ -198,10 +167,10 @@ if __name__ == "__main__":
         
         trainer.train()
         trainer.evaluate()
-        trainer.train()
         log_path = output_dir + '/evaluation_accuracies.json'
         print (f'Saving hamming log to {log_path}')
         evaluation_accuracy = {"Accuracies": hamming_log}
         with open(log_path, 'w') as f:
             json.dump(evaluation_accuracy, f)
-        del model, trainer, 
+        del model, trainer
+        all_hammings, hamming_log = [], []
