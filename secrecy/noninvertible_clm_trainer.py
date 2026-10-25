@@ -221,7 +221,7 @@ def evaluate_noninvertibility(
 
             if isinstance(unwrap_model(noninvertible_clm), DualRootParallelModel):
                 inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
-            elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer):
+            elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer) or isinstance(unwrap_model(noninvertible_clm), NonInvertibleTransformer):
                 inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # loss on all inputs
             else:
                 inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
@@ -275,7 +275,9 @@ def train_noninvertible_clm(
         train_for_noninv=True,
         evaluate_every=10000,
         log_every=500,
-        n_tokens_obfuscated=128
+        n_tokens_obfuscated=128,
+        alpha=1.,
+        beta=1.
     ):
     noninvertible_clm.train()
     inverter.train()
@@ -320,7 +322,7 @@ def train_noninvertible_clm(
                 with accelerator.autocast():
                     noninvertible_clm_loss, noninvertible_inversion_loss, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
                 if train_for_noninv:
-                    total_noninv_loss = noninvertible_clm_loss - noninvertible_inversion_loss
+                    total_noninv_loss = alpha*noninvertible_clm_loss - beta*noninvertible_inversion_loss
                 else:
                     total_noninv_loss = noninvertible_clm_loss
                 noninvertible_clm_optimizer.zero_grad()
@@ -342,7 +344,7 @@ def train_noninvertible_clm(
                 with accelerator.autocast():
                     if isinstance(unwrap_model(noninvertible_clm), DualRootParallelModel):
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
-                    elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer):
+                    elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer) or isinstance(unwrap_model(noninvertible_clm), NonInvertibleTransformer):
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # loss on all inputs
                     else:
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
@@ -719,12 +721,16 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
-    n_tokens_obfuscated = 384
+    #n_tokens_obfuscated = 512
+    #model = init_noninvertible_transformer(tokenizer, vocab_size)
+    #inverter = model.inversion_decoder
+
+    n_tokens_obfuscated = 256
     compress_provider_factor = 1
     route_method = 'unroll_embedding'
     client_dim = 512
     embeddings_to_unroll = 3
-    #model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
+    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
 
 
     # compress_secret_factor = 1
@@ -739,8 +745,8 @@ if __name__ == '__main__':
     #     mask_secret_tokens=mask_secret_tokens
     # )
 
-    n_tokens_obfuscated = 512
-    model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True)
+    #n_tokens_obfuscated = 512
+    #model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True)
 
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
@@ -798,7 +804,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_mixer_2nomidresid_noni_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_parallel_unroll_s{n_tokens_obfuscated}_noni_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -825,6 +831,8 @@ if __name__ == '__main__':
         train_inverter=False,
         train_for_noninv=False,
         n_tokens_obfuscated=n_tokens_obfuscated,
-        start_step=20000
+        alpha=1.,
+        beta=1.,
+        #start_step=30000
     )   
 

@@ -175,6 +175,8 @@ class ParallelNoninvertibleModel(nn.Module):
         self.unified_decoder = unified_decoder # LlamaModel
         self.provider_model = provider_model
         self.no_provider_modules = no_provider_modules
+        if route_method == 'no_info':
+            self.provider_wte = nn.Embedding(n_vocab, dim)
 
         for _, param in self.inversion_decoder.named_parameters():
             param.requires_grad = False 
@@ -245,6 +247,10 @@ class ParallelNoninvertibleModel(nn.Module):
         if self.route_method == 'embedding_split':
             client_input = self.client_proj(encoder_outputs[:, :, :self.encoder_dim//2])
             provider_input = self.provider_proj(encoder_outputs[:, :, self.encoder_dim//2:])
+
+        elif self.route_method == 'no_info':
+            client_input = encoder_outputs
+            provider_input = self.provider_wte(x)
 
         elif self.route_method == 'unroll_embedding':
             client_input = encoder_outputs

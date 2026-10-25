@@ -58,13 +58,15 @@ tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
 
-n_tokens_obfuscated = 512
-compress_provider_factor=1
-route_method='unroll_embedding'
-#model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
+n_tokens_obfuscated = 256
+compress_provider_factor = 1
+route_method = 'unroll_embedding'
+#model = init_noninvertible_transformer(tokenizer, vocab_size)
+#inverter = model.inversion_decoder
+embeddings_to_unroll = 3
+model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, embeddings_to_unroll=embeddings_to_unroll)
 
-
-model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True)
+#model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True)
 original_inverter_state = inverter.state_dict()
 #compress_secret_factor = 1
 #unroll_secret_embedding = False
@@ -80,7 +82,7 @@ original_inverter_state = inverter.state_dict()
 
 
 # load_model, train inverter from scratch (model remains frozen)
-model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_2nomidresid_noni_b64x2/step_200000/clm_model.safetensors"
+model_checkpoint_path = f"{checkpoint_root}/noninvertible_parallel_unroll_s256_noni_b64x2/step_200000/clm_model.safetensors"
 model_state_dict = load_file(model_checkpoint_path)
 
 # deals with unwrapped modules
@@ -105,7 +107,7 @@ model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
 
 num_steps = 200000
-total_training_steps = num_steps
+total_training_steps = num_steps * num_gpus # corrects for multiple steps per global step
 
 model_scheduler = get_linear_schedule_with_warmup(
     model_optimizer,
@@ -144,7 +146,7 @@ model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dat
 loss_fn = torch.nn.CrossEntropyLoss()
 
 n_devices = accelerator.num_processes
-output_dir = f"{data_root}/noninvertible_check_mixer_nomidresid_noni_b{batch_size}x{n_devices}"
+output_dir = f"{data_root}/noninvertible_check_s256_3unroll_b{batch_size}x{n_devices}"
 print ('Model loaded, inverter initialized, training inverter only')
 
 # save driver code snapshot in checkpoint dir
