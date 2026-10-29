@@ -34,8 +34,8 @@ tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
 tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
 context_length = 1024
-decoder_dim = 64
-n_layers = 8
+decoder_dim = 1024
+n_layers = 16
 n_heads = 4 
 clm_config_kwargs = { 
 	'hidden_size': decoder_dim,
@@ -71,7 +71,7 @@ test_path = f"{data_root}/fineweb-edu-tokenized-test-c1024"
 train_dataset = load_from_disk(train_path).map(loss_mask_secret, num_proc=12)
 test_dataset = load_from_disk(test_path).map(loss_mask_secret, num_proc=12)
 
-global_batch_size = 64
+global_batch_size = 32
 n_devices = 4
 
 # get number of devices (assumes that all visible devices are used for training)
@@ -96,6 +96,7 @@ training_arguments = transformers.TrainingArguments(
 	num_train_epochs=3,
 	per_device_train_batch_size=batch_size,
 	per_device_eval_batch_size=batch_size,
+        gradient_accumulation_steps=2,
 	warmup_steps=500,
 	eval_steps=5000,
 	logging_steps=500,
