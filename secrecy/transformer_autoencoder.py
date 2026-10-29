@@ -4,6 +4,8 @@ import torch
 from einops import rearrange
 import transformers
 from transformers import AutoTokenizer, LlamaConfig, LlamaModel, LlamaForCausalLM
+from transformers.models.llama.modeling_llama import LlamaAttention, LlamaMLP, LlamaRMSNorm
+from transformers.modeling_layers import GradientCheckpointingLayer
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.masking_utils import create_causal_mask
 import torch.nn as nn
@@ -150,9 +152,63 @@ class SuffixModel(LlamaModel):
             last_hidden_state=hidden_states,
         )
 
+class ResidLlamaDecoderLayer(GradientCheckpointingLayer):
+    def __init__(self, config: LlamaConfig, layer_idx: int, attn_residual=True, mlp_residual=True, freeze_params=False):
+        super().__init__()
+        self.hidden_size = config.hidden_size
+
+        self.self_attn = LlamaAttention(config=config, layer_idx=layer_idx)
+
+        self.mlp = LlamaMLP(config)
+        self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.post_attention_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.attn_residual = attn_residual
+        self.mlp_residual = mlp_residual
+        if freeze_params:
+            for _, param in self.named_parameters():
+                param.requires_grad = False
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_values = None,
+        use_cache: bool | None = False,
+        position_embeddings: tuple[torch.Tensor, torch.Tensor] | None = None,
+        **kwargs,
+    ) -> torch.Tensor:
+        residual = hidden_states
+        hidden_states = self.input_layernorm(hidden_states)
+        # Self Attention
+        hidden_states, _ = self.self_attn(
+            hidden_states=hidden_states,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            use_cache=use_cache,
+            position_embeddings=position_embeddings,
+            **kwargs,
+        )
+        if self.attn_residual:
+            hidden_states = residual + hidden_states
+        else:
+            hidden_states = hidden_states
+
+        # Fully Connected
+        residual = hidden_states
+        hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.mlp(hidden_states)
+        if self.mlp_residual:
+            hidden_states = residual + hidden_states
+        else:
+            hidden_states = hidden_states
+        return hidden_states
+
+
 class SplitModel(LlamaModel):
 
-    def __init__(self, config, split_layer=8, num_hidden_layers=16, compression=1, expansion=1):
+    def __init__(self, config, split_layer=8, num_hidden_layers=16, compression=1, expansion=1, attn_residual=True, mlp_residual=True, freeze_noresids=False):
         super().__init__(config)
         self.split_layer = 8
         self.num_hidden_layers = num_hidden_layers
@@ -163,6 +219,12 @@ class SplitModel(LlamaModel):
         elif expansion > 1:
             self.down = nn.Linear(config.hidden_size, config.hidden_size * expansion)
             self.up = nn.Linear(config.hidden_size * expansion, config.hidden_size)
+
+        module_list = []
+        for i in range(split_layer):
+            module = ResidLlamaDecoderLayer(config, i, attn_residual=attn_residual, mlp_residual=mlp_residual, freeze_params=freeze_noresids) 
+            self.layers[i] = module
+
 
     def forward(
         self,

@@ -21,8 +21,6 @@ from dotenv import load_dotenv
 from pathlib import Path
 from tqdm import tqdm
 
-from peft import LoraConfig, TaskType, get_peft_model
-
 from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
 from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
 
