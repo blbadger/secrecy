@@ -64,8 +64,8 @@ compress_provider_factor=1
 # route_method='unroll_embedding'
 # model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
 
-noninv_layers = 8
-model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True, noninv_layers=noninv_layers)
+# noninv_layers = 8
+# model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True, noninv_layers=noninv_layers)
 
 
 model, inverter = init_noninvertible_transformer(
@@ -79,7 +79,7 @@ model, inverter = init_noninvertible_transformer(
     split_layer=1,
     attn_residual=False,
     mlp_residual=True,
-    freeze_nonresides=False
+    freeze_noresids=False
     )
 
 original_inverter_state = inverter.state_dict()
@@ -103,8 +103,8 @@ for i in range(10000, 200000, 10000):
     model_state_dict = load_file(model_checkpoint_path)
 
     # deals with unwrapped modules
-    #remapped_state_dict = {remap_keys(k): v for k, v in model_state_dict.items()}
-    #model.load_state_dict(remapped_state_dict, strict=False) # inverter may not match
+    remapped_state_dict = {remap_keys(k): v for k, v in model_state_dict.items()}
+    model.load_state_dict(remapped_state_dict, strict=False) # inverter may not match
     inverter.load_state_dict(original_inverter_state)
 
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
