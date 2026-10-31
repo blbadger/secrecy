@@ -36,6 +36,7 @@ from accelerate.utils import TorchDynamoPlugin
 
 from safetensors.torch import save_file, save_model, load_model, load_file
 import os
+import jsonlines
 
 def remap_keys(key):
     prefix = "_orig_mod."
@@ -60,10 +61,10 @@ vocab_size = len(tokenizer)
 
 n_tokens_obfuscated = 512
 compress_provider_factor=1
-route_method='unroll_embedding'
-#model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
+# route_method='unroll_embedding'
+# model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
 
-noninv_layers=1
+noninv_layers = 8
 model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True, noninv_layers=noninv_layers)
 original_inverter_state = inverter.state_dict()
 #compress_secret_factor = 1
@@ -79,94 +80,105 @@ original_inverter_state = inverter.state_dict()
 #    )
 
 
-# load_model, train inverter from scratch (model remains frozen)
-#model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_nomidresid_freeze_noni_b32x4/step_200000/clm_model.safetensors"
-#model_state_dict = load_file(model_checkpoint_path)
+ni_losses, clm_losses = [], []
+for i in range(10000, 200000, 10000):
+    # load_model, train inverter from scratch (model remains frozen)
+    model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_4nomidresid_noni_b32x4/step_{i}/clm_model.safetensors"
+    model_state_dict = load_file(model_checkpoint_path)
 
-# deals with unwrapped modules
-#remapped_state_dict = {remap_keys(k): v for k, v in model_state_dict.items()}
-#model.load_state_dict(remapped_state_dict, strict=False) # inverter may not match
-inverter.load_state_dict(original_inverter_state)
+    # deals with unwrapped modules
+    #remapped_state_dict = {remap_keys(k): v for k, v in model_state_dict.items()}
+    #model.load_state_dict(remapped_state_dict, strict=False) # inverter may not match
+    inverter.load_state_dict(original_inverter_state)
 
-train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
-test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
+    train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
+    test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
 
-# load datasets and duplicate entries
-train_dataset = load_from_disk(train_path)
-test_dataset = load_from_disk(test_path)
+    # load datasets and duplicate entries
+    train_dataset = load_from_disk(train_path)
+    test_dataset = load_from_disk(test_path)
 
-learning_rate = 2e-4
-num_gpus = torch.cuda.device_count()
-batch_size = 128 // num_gpus
-train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
-test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    learning_rate = 2e-4
+    num_gpus = torch.cuda.device_count()
+    batch_size = 128 // num_gpus
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
+    model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
 
-num_steps = 200000
-total_training_steps = num_steps * num_gpus
+    num_steps = 20000
+    total_training_steps = num_steps * num_gpus
 
-model_scheduler = get_linear_schedule_with_warmup(
-    model_optimizer,
-    num_warmup_steps=500,
-    num_training_steps=total_training_steps,
-)
+    model_scheduler = get_linear_schedule_with_warmup(
+        model_optimizer,
+        num_warmup_steps=500,
+        num_training_steps=total_training_steps,
+    )
 
-inverter_scheduler = get_linear_schedule_with_warmup(
-    inverter_optimizer,
-    num_warmup_steps=500,
-    num_training_steps=total_training_steps
-)
+    inverter_scheduler = get_linear_schedule_with_warmup(
+        inverter_optimizer,
+        num_warmup_steps=500,
+        num_training_steps=total_training_steps
+    )
 
-# Configure the compilation backend
-dynamo_plugin = TorchDynamoPlugin(
-    backend="inductor",
-    mode="default",
-    fullgraph=False,
-    dynamic=False
-)
+    # Configure the compilation backend
+    dynamo_plugin = TorchDynamoPlugin(
+        backend="inductor",
+        mode="default",
+        fullgraph=False,
+        dynamic=False
+    )
 
-ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 
-accelerator = Accelerator(mixed_precision='fp16', dynamo_plugin=dynamo_plugin, kwargs_handlers=[ddp_kwargs])
-model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader, model_scheduler, inverter_scheduler = accelerator.prepare(
-    model, 
-    model_optimizer, 
-    inverter, 
-    inverter_optimizer, 
-    train_dataloader, 
-    test_dataloader,
-    model_scheduler,
-    inverter_scheduler
-)
+    accelerator = Accelerator(mixed_precision='fp16', dynamo_plugin=dynamo_plugin, kwargs_handlers=[ddp_kwargs])
+    model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader, model_scheduler, inverter_scheduler = accelerator.prepare(
+        model, 
+        model_optimizer, 
+        inverter, 
+        inverter_optimizer, 
+        train_dataloader, 
+        test_dataloader,
+        model_scheduler,
+        inverter_scheduler
+    )
 
-loss_fn = torch.nn.CrossEntropyLoss()
+    loss_fn = torch.nn.CrossEntropyLoss()
 
-n_devices = accelerator.num_processes
-output_dir = f"{data_root}/noninvertible_check_untrained_wte1_noni_b{batch_size}x{n_devices}"
-print ('Model loaded, inverter initialized, training inverter only')
+    n_devices = accelerator.num_processes
+    output_dir = f"{data_root}/noninvertible_check_untrained_wte1_noni_b{batch_size}x{n_devices}"
+    print ('Model loaded, inverter initialized, training inverter only')
 
-# save driver code snapshot in checkpoint dir
-code_path = os.path.abspath(__file__)
-if not os.path.isdir(output_dir):
-    os.mkdir(output_dir)
-shutil.copy(code_path, output_dir)
+    # save driver code snapshot in checkpoint dir
+    code_path = os.path.abspath(__file__)
+    if not os.path.isdir(output_dir):
+        os.mkdir(output_dir)
+    shutil.copy(code_path, output_dir)
 
-train_noninvertible_clm(
-    train_dataloader, 
-    test_dataloader, 
-    model, 
-    model_optimizer, 
-    inverter, 
-    inverter_optimizer, 
-    loss_fn,
-    accelerator,
-    tokenizer=tokenizer,
-    clm_scheduler=model_scheduler, 
-    inverter_scheduler=inverter_scheduler, 
-    checkpoint_dir=output_dir,
-    steps=num_steps,
-    train_clm = False,
-    n_tokens_obfuscated=n_tokens_obfuscated
-)
+    train_noninvertible_clm(
+        train_dataloader, 
+        test_dataloader, 
+        model, 
+        model_optimizer, 
+        inverter, 
+        inverter_optimizer, 
+        loss_fn,
+        accelerator,
+        tokenizer=tokenizer,
+        clm_scheduler=model_scheduler, 
+        inverter_scheduler=inverter_scheduler, 
+        checkpoint_dir=output_dir,
+        steps=num_steps,
+        train_clm = False,
+        n_tokens_obfuscated=n_tokens_obfuscated
+    )
+    path = output_dir + '/eval_log.jsonl'
+    ni_loss = jsonlines.open(path)[-1]['eval_ni_loss']
+    clm_loss = jsonlines.open(path)[-1]['eval_clm_loss']
+    ni_losses.append(ni_loss)
+    clm_losses.append(clm_loss)
+
+print (ni_losses)
+print (clm_losses)
+

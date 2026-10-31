@@ -501,12 +501,15 @@ def init_noninvertible_mixer(
         split_layer=1,
         mixer_residual=mixer_residual
         )
-    # TODO: propagate up
-    for i in range(noninv_layers):
+    
+    for i in range(4, 8): 
         model.mixerblocks[i].mixer_residual = False
-        toggle_grads(model.mixerblocks[i], False)
-        toggle_grads(model.wte, False)
-        #model.mixerblocks[i].mlp_residual = False
+
+    # for i in range(noninv_layers): # TODO: revert
+    #     model.mixerblocks[i].mixer_residual = False
+    #     toggle_grads(model.mixerblocks[i], False)
+    #     toggle_grads(model.wte, False)
+    #     #model.mixerblocks[i].mlp_residual = False
 
     inverter = InverterMixer(
         vocab_size, 

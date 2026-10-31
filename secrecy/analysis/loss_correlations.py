@@ -5,8 +5,9 @@ from sklearn.linear_model import LinearRegression
 import numpy as np
 from scipy import stats
 
-ni_loss  = [0.624, 3.977, 1.207, 2.636, 5.943]
-clm_loss = [3.364, 5.120, 3.701, 4.89, 6.413]
+ni_loss  = [0.624, 3.977, 1.207, 2.636, 5.943, 0.028, 7.324, 7.06]
+clm_loss = [3.364, 5.120, 3.701, 4.89, 6.413, 2.94, 7.324, 6.91]
+model = ['mixer', 'mixer', 'mixer', 'mixer', 'transformer', 'transformer', 'transformer']
 
 df = pd.DataFrame()
 df['NI Loss'] = ni_loss
