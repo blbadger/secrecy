@@ -66,6 +66,22 @@ compress_provider_factor=1
 
 noninv_layers = 8
 model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True, noninv_layers=noninv_layers)
+
+
+model, inverter = init_noninvertible_transformer(
+    tokenizer,
+    vocab_size,
+    context_length=512,
+    decoder_dim=512,
+    inverter_layers=8,
+    model_layers=16,
+    n_heads=4,
+    split_layer=1,
+    attn_residual=False,
+    mlp_residual=True,
+    freeze_nonresides=False
+    )
+
 original_inverter_state = inverter.state_dict()
 #compress_secret_factor = 1
 #unroll_secret_embedding = False
@@ -83,7 +99,7 @@ original_inverter_state = inverter.state_dict()
 ni_losses, clm_losses = [], []
 for i in range(10000, 200000, 10000):
     # load_model, train inverter from scratch (model remains frozen)
-    model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_4nomidresid_noni_b32x4/step_{i}/clm_model.safetensors"
+    model_checkpoint_path = f"{checkpoint_root}/noninvertible_1noresid_d512_b64x2/step_{i}/clm_model.safetensors"
     model_state_dict = load_file(model_checkpoint_path)
 
     # deals with unwrapped modules
@@ -147,7 +163,7 @@ for i in range(10000, 200000, 10000):
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    output_dir = f"{data_root}/noninvertible_check_untrained_wte1_noni_b{batch_size}x{n_devices}"
+    output_dir = f"{data_root}/noninvertible_check_transformer_noni_b{batch_size}x{n_devices}"
     print ('Model loaded, inverter initialized, training inverter only')
 
     # save driver code snapshot in checkpoint dir

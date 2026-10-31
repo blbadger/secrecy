@@ -498,10 +498,10 @@ def init_noninvertible_mixer(
         model_layers,
         context_length,
         n_heads=n_heads,
-        split_layer=1,
+        split_layer=8,
         mixer_residual=mixer_residual
         )
-    
+
     for i in range(4, 8): 
         model.mixerblocks[i].mixer_residual = False
 
