@@ -208,7 +208,8 @@ class ResidLlamaDecoderLayer(GradientCheckpointingLayer):
 
 class SplitModel(LlamaModel):
 
-    def __init__(self, config, split_layer=8, num_hidden_layers=16, compression=1, expansion=1, attn_residual=True, mlp_residual=True, freeze_noresids=False):
+    def __init__(self, config, split_layer=8, num_hidden_layers=16, compression=1, expansion=1, 
+                 attn_residual=True, mlp_residual=True, freeze_noresids=False, prefix_noninv=False, noninv_layers=0):
         super().__init__(config)
         self.split_layer = 8
         self.num_hidden_layers = num_hidden_layers
@@ -221,7 +222,11 @@ class SplitModel(LlamaModel):
             self.up = nn.Linear(config.hidden_size * expansion, config.hidden_size)
 
         module_list = []
-        for i in range(split_layer):
+        if prefix_noninv:
+            noninv_layers = [i for i in range(noninv_layers)]
+        else:
+            noninv_layers = [split_layer-i for i in range(noninv_layers)]
+        for i in noninv_layers:
             module = ResidLlamaDecoderLayer(config, i, attn_residual=attn_residual, mlp_residual=mlp_residual, freeze_params=freeze_noresids) 
             self.layers[i] = module
 

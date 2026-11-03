@@ -431,7 +431,9 @@ def init_noninvertible_transformer(
         split_layer=1,
         attn_residual=True,
         mlp_residual=True,
-        freeze_noresids=False
+        freeze_noresids=False,
+        prefix_noninv=True,
+        noninv_layers=1
     ):
     encoder_config_kwargs = { 
         'hidden_size': decoder_dim,
@@ -468,7 +470,10 @@ def init_noninvertible_transformer(
         encoder_configuration,
         attn_residual=attn_residual,
         mlp_residual=mlp_residual,
-        freeze_noresids=freeze_noresids
+        freeze_noresids=freeze_noresids,
+        split_layer=split_layer,
+        prefix_noninv=prefix_noninv,
+        noninv_layers=noninv_layers
     )
     split_model.config.num_hidden_layers = model_layers
 
@@ -489,8 +494,12 @@ def init_noninvertible_mixer(
         inverter_layers=8, 
         model_layers=16, 
         n_heads=4,
+        noninv_layers=1,
+        split_layer=8,
         mixer_residual=False,
-        noninv_layers=4
+        mlp_residual=False,
+        freeze_layers=False,
+        prefix_layers=True
     ):
     model = SplitLanguageMixer(
         vocab_size, 
@@ -498,18 +507,19 @@ def init_noninvertible_mixer(
         model_layers,
         context_length,
         n_heads=n_heads,
-        split_layer=8,
+        split_layer=split_layer,
         mixer_residual=mixer_residual
         )
-    for i in range(5, 8): 
-        model.mixerblocks[i].mixer_residual = False
-        #toggle_grads(model.mixerblocks[i], False)
 
-    # for i in range(noninv_layers): # TODO: revert
-    #     model.mixerblocks[i].mixer_residual = False
-    #     toggle_grads(model.mixerblocks[i], False)
-    #     toggle_grads(model.wte, False)
-    #     #model.mixerblocks[i].mlp_residual = False
+    if prefix_layers:
+        layers = [i for i in range(noninv_layers)]
+    else:
+        layers = [split_layer-i for i in range(noninv_layers)]
+
+    for i in layers:
+        model.mixerblocks[i].mixer_residual = mixer_residual
+        model.mixerblocks[i].mlp_residual = transformer_residual
+        toggle_grads(model.mixerblocks[i], False)
 
     inverter = InverterMixer(
         vocab_size, 
@@ -757,28 +767,30 @@ if __name__ == '__main__':
     #     mask_secret_tokens=mask_secret_tokens
     # )
 
+    # n_tokens_obfuscated = 512
+    # decoder_dim = 512
+    # noninv_layers=6
+    # model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, decoder_dim=decoder_dim, mixer_residual=True, noninv_layers=noninv_layers)
+
+
     n_tokens_obfuscated = 512
     decoder_dim = 512
-    noninv_layers=6
-    model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, decoder_dim=decoder_dim, mixer_residual=True, noninv_layers=noninv_layers)
 
-
-    #n_tokens_obfuscated = 512
-    #decoder_dim = 512
-
-    #model, inverter = init_noninvertible_transformer(
-    #    tokenizer, 
-    #    vocab_size, 
-    #    context_length=512, 
-    #    decoder_dim=512, 
-    #    inverter_layers=8, 
-    #    model_layers=16, 
-    #    n_heads=4,
-    #    split_layer=1,
-    #    attn_residual=False,
-    #    mlp_residual=True,
-    #    freeze_noresids=False
-    #)
+    model, inverter = init_noninvertible_transformer(
+       tokenizer, 
+       vocab_size, 
+       context_length=512, 
+       decoder_dim=512, 
+       inverter_layers=8, 
+       model_layers=16, 
+       n_heads=4,
+       noninv_layers=2,
+       attn_residual=False,
+       mlp_residual=True,
+       freeze_noresids=False,
+       prefix_noninv=True,
+       split_layer=2,
+    )
 
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
