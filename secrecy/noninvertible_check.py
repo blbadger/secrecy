@@ -37,6 +37,7 @@ from accelerate.utils import TorchDynamoPlugin
 from safetensors.torch import save_file, save_model, load_model, load_file
 import os
 import jsonlines
+import time
 
 def remap_keys(key):
     prefix = "_orig_mod."
@@ -97,7 +98,11 @@ original_inverter_state = inverter.state_dict()
 
 
 ni_losses, clm_losses = [], []
-for i in range(10000, 200000, 10000):
+for i in range(10000, 200000, 20000):
+    noninv_layers = 3
+    model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True, noninv_layers=noninv_layers)
+    original_inverter_state = inverter.state_dict()
+    
     # load_model, train inverter from scratch (model remains frozen)
     model_checkpoint_path = f"{checkpoint_root}/noninvertible_1noresid_d512_b64x2/step_{i}/clm_model.safetensors"
     model_state_dict = load_file(model_checkpoint_path)
@@ -124,6 +129,8 @@ for i in range(10000, 200000, 10000):
     inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
 
     num_steps = 20000
+    save_every = 20000
+    evaluate_every = 20000
     total_training_steps = num_steps * num_gpus
 
     model_scheduler = get_linear_schedule_with_warmup(
@@ -186,12 +193,14 @@ for i in range(10000, 200000, 10000):
         inverter_scheduler=inverter_scheduler, 
         checkpoint_dir=output_dir,
         steps=num_steps,
+        save_every=save_every,
+        evaluate_every=evaluate_every,
         train_clm = False,
         n_tokens_obfuscated=n_tokens_obfuscated
     )
     path = output_dir + '/eval_log.jsonl'
-    ni_loss = jsonlines.open(path)[-1]['eval_ni_loss']
-    clm_loss = jsonlines.open(path)[-1]['eval_clm_loss']
+    ni_loss = list(jsonlines.open(path))[-1]['eval_inverter_loss']
+    clm_loss = list(jsonlines.open(path))[-1]['eval_clm_loss']
     ni_losses.append(ni_loss)
     clm_losses.append(clm_loss)
 

@@ -501,9 +501,9 @@ def init_noninvertible_mixer(
         split_layer=8,
         mixer_residual=mixer_residual
         )
-
-    for i in range(4, 8): 
+    for i in range(5, 8): 
         model.mixerblocks[i].mixer_residual = False
+        #toggle_grads(model.mixerblocks[i], False)
 
     # for i in range(noninv_layers): # TODO: revert
     #     model.mixerblocks[i].mixer_residual = False
@@ -743,7 +743,7 @@ if __name__ == '__main__':
     client_dim = 64
     decoder_dim = 64
     embeddings_to_unroll = 1
-    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, decoder_dim=decoder_dim, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
+    #model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, decoder_dim=decoder_dim, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
 
     # compress_secret_factor = 1
     # unroll_secret_embedding = True
@@ -757,10 +757,10 @@ if __name__ == '__main__':
     #     mask_secret_tokens=mask_secret_tokens
     # )
 
-    #n_tokens_obfuscated = 512
-    #decoder_dim = 512
-    #noninv_layers=1
-    #model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, decoder_dim=decoder_dim, mixer_residual=True, noninv_layers=noninv_layers)
+    n_tokens_obfuscated = 512
+    decoder_dim = 512
+    noninv_layers=6
+    model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, decoder_dim=decoder_dim, mixer_residual=True, noninv_layers=noninv_layers)
 
 
     #n_tokens_obfuscated = 512
@@ -780,8 +780,8 @@ if __name__ == '__main__':
     #    freeze_noresids=False
     #)
 
-    train_path = f"{data_root}/fineweb-edu-tokenized-train-c1024"
-    test_path = f"{data_root}/fineweb-edu-tokenized-test-c1024"
+    train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
+    test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
 
     # load datasets and duplicate entries
     train_dataset = load_from_disk(train_path)
@@ -789,7 +789,7 @@ if __name__ == '__main__':
 
     learning_rate = 2e-4
     num_gpus = torch.cuda.device_count()
-    batch_size = 64 // num_gpus
+    batch_size = 128 // num_gpus
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
@@ -836,7 +836,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_parallel_unroll_noni_1p8c1u1_d{decoder_dim}_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_mixer_6nomidresid_d{decoder_dim}_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
