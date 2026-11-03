@@ -115,7 +115,7 @@ paths = [
     '/home/bbadger/Desktop/secret_512_n8.json',
     '/home/bbadger/Desktop/secret_512_n16.json',    
     '/home/bbadger/Desktop/secret_1024_n16.json',
-    # '/home/bbadger/Desktop/secret_1024_n24.json',
+    '/home/bbadger/Desktop/secret_1024_n24.json',
 ]
 
 labels = [
@@ -125,7 +125,7 @@ labels = [
     'd=512, n=8',
     'd=512, n=16',
     'd=1024, n=16',
-    # 'd=1024, n=24'
+    'd=1024, n=24'
 ]
 
 plot_curves(paths, labels, lines=True)
