@@ -27,7 +27,7 @@ data_root = os.getenv('DATA_ROOT')
 
 device = 'cuda' if torch.cuda.is_available else 'cpu'
 
-def add_random_redactions(example, weights=[0.1, 0.9]):
+def add_random_redactions(example, weights=[0.6, 0.4]):
 	input_length = len(example['input_ids'])
 	redaction_tensor = torch.multinomial(torch.tensor(weights), input_length, replacement=True)
 	example['redactions'] = redaction_tensor
@@ -64,7 +64,7 @@ provider_encoder_model = provider_encoder_model.model
 # user encoder init
 context_length = 512
 dim = 512
-n_layers = 1
+n_layers = 3
 n_heads = 4
 encoder_config_kwargs = { 
 	'hidden_size': encoder_dim,
@@ -79,7 +79,7 @@ user_encoder_configuration = LlamaConfig(**encoder_config_kwargs)
 user_encoder_model = LlamaModel(user_encoder_configuration)
 
 # combined decoder init
-n_layers = 2
+n_layers = 4
 n_heads = 4
 decoder_dim = 512
 decoder_config_kwargs = { 
@@ -116,8 +116,8 @@ datasets.config.IN_MEMORY_MAX_SIZE = 0
 train_dataset = load_from_disk(train_path)
 test_dataset = load_from_disk(test_path)
 
-train_dataset = train_dataset.map(add_prefix_redactions, num_proc=16)
-test_dataset = test_dataset.map(add_prefix_redactions, num_proc=16)
+train_dataset = train_dataset.map(add_random_redactions, num_proc=16)
+test_dataset = test_dataset.map(add_random_redactions, num_proc=16)
 print (train_dataset[0], test_dataset[0])
 
 global_batch_size = 128
@@ -129,7 +129,7 @@ if torch.cuda.is_available():
 batch_size = global_batch_size // n_devices
 
 # descriptive name for output
-output_dir = f'{checkpoint_root}/fineweb_prefix_s128_redaction\
+output_dir = f'{checkpoint_root}/fineweb_random_0.4_redaction\
 _{encoder_dim}\
 _d{decoder_dim}\
 _n{n_layers}\

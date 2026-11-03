@@ -295,7 +295,7 @@ def train_noninvertible_clm(
     if start_step > 0:
         load_checkpoint(
         accelerator, 
-        model, 
+        noninvertible_clm, 
         inverter, 
         model_optimizer, 
         inverter_optimizer, 
@@ -471,7 +471,7 @@ def init_noninvertible_transformer(tokenizer,
         inverter,
         clm_head=clm_head,
     )
-    return model
+    return model, inverter
 
 def init_noninvertible_mixer(
         tokenizer, 
@@ -481,7 +481,8 @@ def init_noninvertible_mixer(
         inverter_layers=8, 
         model_layers=16, 
         n_heads=4,
-        mixer_residual=False
+        mixer_residual=False,
+        noninv_layers=4
     ):
     model = SplitLanguageMixer(
         vocab_size, 
@@ -489,12 +490,16 @@ def init_noninvertible_mixer(
         model_layers,
         context_length,
         n_heads=n_heads,
-        split_layer=8,
+        split_layer=1,
         mixer_residual=mixer_residual
         )
     # TODO: propagate up
-    model.mixerblocks[7].mixer_residual = False
-    model.mixerblocks[6].mixer_residual = False
+    for i in range(noninv_layers):
+        #model.mixerblocks[i].mixer_residual = False
+        toggle_grads(model.mixerblocks[i], False)
+        #toggle_grads(model.wte, False)
+        model.mixerblocks[i].mlp_residual = False
+
     inverter = InverterMixer(
         vocab_size, 
         decoder_dim, 
@@ -517,14 +522,14 @@ def init_noninvertible_parallelmodel(
     n_tokens_obfuscated,
     compress_provider_factor=1,
     route_method='embedding_split',
-    context_length=512, 
+    context_length=1024, 
     decoder_dim=512, 
     client_dim=512,
-    inverter_layers=8, 
-    unified_encoder_layers=4,
+    inverter_layers=1, 
+    unified_encoder_layers=2,
     provider_model_layers=16, 
-    client_encoder_layers=3,
-    unified_decoder_layers=4,
+    client_encoder_layers=2,
+    unified_decoder_layers=2,
     n_heads=4,
     embeddings_to_unroll=1
     ):
@@ -539,7 +544,7 @@ def init_noninvertible_parallelmodel(
     }
     configuration = BertConfig(**config_kwargs)
     model = BertForMaskedLM(configuration)
-    inverter = SecretDecoder(vocab_size, decoder_dim, model, reduce_loss=False)
+    inverter = SecretDecoder(vocab_size, decoder_dim, model, embedding_dim=decoder_dim, reduce_loss=False)
 
     # unified encoder specification
     config_kwargs = { 
@@ -721,17 +726,13 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
-    #n_tokens_obfuscated = 512
-    #model = init_noninvertible_transformer(tokenizer, vocab_size)
-    #inverter = model.inversion_decoder
-
-    n_tokens_obfuscated = 256
-    compress_provider_factor = 1
-    route_method = 'unroll_embedding'
-    client_dim = 512
-    embeddings_to_unroll = 3
-    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
-
+    n_tokens_obfuscated = 512 
+    #compress_provider_factor = 1
+    #route_method = 'unroll_embedding'
+    #client_dim = 1024
+    #decoder_dim = client_dim
+    #embeddings_to_unroll = 1
+    #model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, decoder_dim=decoder_dim, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
 
     # compress_secret_factor = 1
     # unroll_secret_embedding = True
@@ -746,8 +747,11 @@ if __name__ == '__main__':
     # )
 
     #n_tokens_obfuscated = 512
-    #model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True)
-
+    #decoder_dim = 512
+    #noninv_layers = 2
+    #model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, decoder_dim=decoder_dim, mixer_residual=True, noninv_layers=noninv_layers)
+    decoder_dim=512
+    model, inverter = init_noninvertible_transformer(tokenizer, vocab_size, decoder_dim=decoder_dim)
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
 
@@ -764,7 +768,7 @@ if __name__ == '__main__':
     model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
 
-    num_steps = 200000
+    num_steps = 100000
     total_training_steps = num_steps * num_gpus # num_gpu steps taken for each 
 
     model_scheduler = get_linear_schedule_with_warmup(
@@ -804,7 +808,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_parallel_unroll_s{n_tokens_obfuscated}_noni_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_transformer_d{decoder_dim}_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -833,6 +837,6 @@ if __name__ == '__main__':
         n_tokens_obfuscated=n_tokens_obfuscated,
         alpha=1.,
         beta=1.,
-        #start_step=30000
+        #start_step=120000
     )   
 
