@@ -11,6 +11,7 @@ import torch.nn as nn
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+
 class NonInvertibleTransformer(nn.Module):
        
     def __init__(self, 

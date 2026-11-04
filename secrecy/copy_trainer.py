@@ -126,7 +126,10 @@ if __name__ == "__main__":
         config = LlamaConfig(**encoder_config_kwargs)
         model = LlamaForCausalLM(config)
         model = CopyModel(model, copy=True, vocab_size=n_vocab)
-
+        print (model.model)
+        trainable_params = sum(p.numel() for p in model.model.model.layers[0].parameters() if p.requires_grad)
+        print(f"Trainable parameters: {trainable_params}"),
+        continue
         print (len(train_dataset[0]['input_ids']), tokenizer.decode(train_dataset[0]['input_ids']))
         mlflow.end_run()
         print("training begun")
