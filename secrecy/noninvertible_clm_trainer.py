@@ -519,7 +519,7 @@ def init_noninvertible_mixer(
     for i in layers:
         model.mixerblocks[i].mixer_residual = mixer_residual
         model.mixerblocks[i].mlp_residual = transformer_residual
-        toggle_grads(model.mixerblocks[i], False)
+        toggle_grads(model.mixerblocks[i], freeze_layers)
 
     inverter = InverterMixer(
         vocab_size, 
@@ -808,7 +808,7 @@ if __name__ == '__main__':
     model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
 
-    num_steps = 200000
+    num_steps = 500000
     total_training_steps = num_steps * num_gpus # num_gpu steps taken for each 
 
     model_scheduler = get_linear_schedule_with_warmup(
@@ -875,5 +875,7 @@ if __name__ == '__main__':
         train_inverter=False,
         train_for_noninv=False,
         n_tokens_obfuscated=n_tokens_obfuscated,
+        start_step=200000
     )   
+
 
