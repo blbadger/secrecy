@@ -33,6 +33,9 @@ clm_loss = [3.69493973, 3.69493973, 3.41125239, 3.30953566, 3.25862859, 3.249621
 mixer_ni_6_loss = [5.83585758, 5.47310582, 5.44318829, 5.42889326, 5.36313015, 5.33550104, 5.33220358, 5.31828008, 5.29482946, 5.29447356]
 mixer_clm_6_loss =[6.5450299, 5.99901157, 5.86456377, 5.79597212, 5.72897831, 5.6839584, 5.64814216, 5.61381636, 5.59011412, 5.5644269]
 
+mixer_ni_6_loss_2 = [5.29099252, 5.28661547, 5.28711, 5.27975144, 5.27102544, 5.2709374, 5.25826831, 5.22875727, 5.22616288, 5.21023661, 5.20579806, 5.19310712, 5.19761872, 5.18586844, 5.18798859]
+mixer_clm_6_loss_2 = [5.55730499, 5.61659619, 5.5941415, 5.57703854, 5.55594504, 5.54446606, 5.53252003, 5.5102077, 5.49361238, 5.48295574, 5.46877997, 5.45861161, 5.44959714, 5.43909409, 5.43074586]
+
 # -5 mid residuals on mixer layers
 mixer_ni_5_loss = [4.35704442, 3.79608451, 3.71395866, 3.51673269, 3.27492295, 3.15070564, 3.01807671, 2.93672512, 2.86960893, 2.84140787]
 mixer_clm_5_loss = [5.69162354, 5.02482429, 4.87277869, 4.71879777, 4.56487054, 4.47185171, 4.37776766, 4.31578747, 4.26553009, 4.23872489]
@@ -58,43 +61,55 @@ transformer_clm_4_loss = [5.33631651, 3.7729077, 3.51361662, 3.42266861, 3.29930
 transformer_ni_5_loss = [0.30150969, 0.10281681, 0.10325098, 0.18710661, 0.19567754, 0.20648424, 0.3994749, 0.40984296, 0.3933475, 0.17643956]
 transformer_clm_5_loss = [3.69486949, 3.33648791, 3.20563447, 3.13573251, 3.08873856, 3.05707521, 3.0291158, 3.00744161, 2.98918663, 2.97316763]
 
+transformer_ni_6_loss = [0.75125442, 2.37095482, 1.02416266, 0.88408253, 0.73489294, 1.10367071, 1.10367071, 0.80007685, 0.7348376, 0.7348376]
+transformer_clm_6_loss =[3.84067077, 5.42513125, 4.31245161, 3.81797662, 3.84067046, 4.24333171, 4.24333171, 3.88550398, 3.78519528, 3.78519528]
+
 slopes, train_rates, intercepts = [], [], []
 df = pd.DataFrame()
-# df['NI Loss'] = transformer_ni_4_loss
-# df['CLM Loss'] = transformer_clm_4_loss
-# sns.regplot(df, x='CLM Loss', y='NI Loss', ci=None, truncate=False, label='Transformer, -4 resids')
-# slope, intercept, r_value, p_value, std_err = stats.linregress(transformer_ni_4_loss, transformer_ni_4_loss)
-# slopes.append(slope)
-# intercepts.append(intercept)
-# train_rates.append(transformer_ni_4_loss[0] - transformer_ni_4_loss[-1])
+df['NI Loss'] = transformer_ni_4_loss
+df['CLM Loss'] = transformer_clm_4_loss
+sns.regplot(df, x='CLM Loss', y='NI Loss', ci=None, truncate=False, label='Transformer, -4 resids')
+slope, intercept, r_value, p_value, std_err = stats.linregress(transformer_ni_4_loss, transformer_ni_4_loss)
+slopes.append(slope)
+intercepts.append(intercept)
+train_rates.append(transformer_ni_4_loss[0] - transformer_ni_4_loss[-1])
 
-# slopes, train_rates, intercepts = [], [], []
-# df = pd.DataFrame()
-# df['NI Loss'] = transformer_ni_5_loss
-# df['CLM Loss'] = transformer_clm_5_loss
-# sns.regplot(df, x='CLM Loss', y='NI Loss', ci=None, truncate=False, label='Transformer, -4 resids')
-# slope, intercept, r_value, p_value, std_err = stats.linregress(transformer_ni_4_loss, transformer_ni_4_loss)
-# slopes.append(slope)
-# intercepts.append(intercept)
-# train_rates.append(transformer_ni_5_loss[0] - transformer_ni_5_loss[-1])
+slopes, train_rates, intercepts = [], [], []
+df = pd.DataFrame()
+df['NI Loss'] = transformer_ni_5_loss
+df['CLM Loss'] = transformer_clm_5_loss
+sns.regplot(df, x='CLM Loss', y='NI Loss', ci=None, truncate=False, label='Transformer, -5 resids')
+slope, intercept, r_value, p_value, std_err = stats.linregress(transformer_ni_5_loss, transformer_ni_5_loss)
+slopes.append(slope)
+intercepts.append(intercept)
+train_rates.append(transformer_ni_5_loss[0] - transformer_ni_5_loss[-1])
 
+slopes, train_rates, intercepts = [], [], []
+df = pd.DataFrame()
+df['NI Loss'] = transformer_ni_6_loss
+df['CLM Loss'] = transformer_clm_6_loss
+sns.regplot(df, x='CLM Loss', y='NI Loss', ci=None, truncate=False, label='Transformer, -5 resids')
+slope, intercept, r_value, p_value, std_err = stats.linregress(transformer_ni_6_loss, transformer_ni_6_loss)
+slopes.append(slope)
+intercepts.append(intercept)
+train_rates.append(transformer_ni_6_loss[0] - transformer_ni_6_loss[-1])
 
 plt.xlim(2.8, 7)
 
-# slopes, train_rates, intercepts = [], [], []
-# df = pd.DataFrame()
-# df['NI Loss'] = mixer_freeze_pre_ni_loss
-# df['CLM Loss'] = mixer_freeze_pre_clm_loss
-# sns.regplot(df, x='CLM Loss', y='NI Loss', ci=None, truncate=False, label='Mixer, -1 resid (frozen) pre')
-# slope, intercept, r_value, p_value, std_err = stats.linregress(mixer_freeze_pre_ni_loss, mixer_freeze_pre_clm_loss)
-# slopes.append(slope)
-# intercepts.append(intercept)
-# train_rates.append(mixer_freeze_pre_clm_loss[0] - mixer_freeze_pre_clm_loss[-1])
+slopes, train_rates, intercepts = [], [], []
+df = pd.DataFrame()
+df['NI Loss'] = mixer_freeze_pre_ni_loss
+df['CLM Loss'] = mixer_freeze_pre_clm_loss
+sns.regplot(df, x='CLM Loss', y='NI Loss', truncate=False, label='Mixer, -1 resid (frozen) pre')
+slope, intercept, r_value, p_value, std_err = stats.linregress(mixer_freeze_pre_ni_loss, mixer_freeze_pre_clm_loss)
+slopes.append(slope)
+intercepts.append(intercept)
+train_rates.append(mixer_freeze_pre_clm_loss[0] - mixer_freeze_pre_clm_loss[-1])
 
 df = pd.DataFrame()
 df['NI Loss'] = mixer_ni_5_loss
 df['CLM Loss'] = mixer_clm_5_loss
-sns.regplot(df, x='CLM Loss', y='NI Loss', ci=None, truncate=False, label='Mixer, -5 residuals')
+sns.regplot(df, x='CLM Loss', y='NI Loss', truncate=False, label='Mixer, -5 residuals')
 slope, intercept, r_value, p_value, std_err = stats.linregress(mixer_ni_5_loss, mixer_ni_5_loss)
 slopes.append(slope)
 intercepts.append(intercept)
@@ -103,16 +118,25 @@ train_rates.append(mixer_clm_5_loss[0] - mixer_clm_5_loss[-1])
 df = pd.DataFrame()
 df['NI Loss'] = mixer_ni_6_loss
 df['CLM Loss'] = mixer_clm_6_loss
-sns.regplot(df, x='CLM Loss', y='NI Loss', ci=None, truncate=False, label='Mixer, -6 residuals')
+sns.regplot(df, x='CLM Loss', y='NI Loss', truncate=False, label='Mixer, -6 residuals')
 slope, intercept, r_value, p_value, std_err = stats.linregress(mixer_ni_6_loss, mixer_ni_6_loss)
 slopes.append(slope)
 intercepts.append(intercept)
 train_rates.append(mixer_clm_6_loss[0] - mixer_clm_6_loss[-1])
 
 df = pd.DataFrame()
+df['NI Loss'] = mixer_ni_6_loss_2
+df['CLM Loss'] = mixer_clm_6_loss_2
+sns.regplot(df, x='CLM Loss', y='NI Loss', truncate=False, label='Mixer, -6 residuals')
+slope, intercept, r_value, p_value, std_err = stats.linregress(mixer_ni_6_loss_2, mixer_ni_6_loss_2)
+slopes.append(slope)
+intercepts.append(intercept)
+train_rates.append(mixer_clm_6_loss_2[0] - mixer_clm_6_loss_2[-1])
+
+df = pd.DataFrame()
 df['NI Loss'] = mixer_ni_loss
 df['CLM Loss'] = mixer_clm_loss
-sns.regplot(df, x='CLM Loss', y='NI Loss', ci=None, truncate=False, label='Mixer, -4 residuals')
+sns.regplot(df, x='CLM Loss', y='NI Loss', truncate=False, label='Mixer, -4 residuals')
 slope, intercept, r_value, p_value, std_err = stats.linregress(mixer_ni_loss, mixer_ni_loss)
 slopes.append(slope)
 intercepts.append(intercept)
@@ -121,7 +145,7 @@ train_rates.append(mixer_clm_loss[0] - mixer_clm_loss[-1])
 df = pd.DataFrame()
 df['NI Loss'] = mixer_freeze_ni_loss
 df['CLM Loss'] = mixer_freeze_clm_loss
-sns.regplot(df, x='CLM Loss', y='NI Loss', ci=None, truncate=False, label='Mixer, -1 residual (frozen)')
+sns.regplot(df, x='CLM Loss', y='NI Loss', truncate=False, label='Mixer, -1 residual (frozen)')
 slope, intercept, r_value, p_value, std_err = stats.linregress(mixer_freeze_ni_loss, mixer_freeze_ni_loss)
 slopes.append(slope)
 intercepts.append(intercept)
@@ -130,7 +154,7 @@ train_rates.append(mixer_freeze_clm_loss[0] - mixer_freeze_clm_loss[-1])
 df = pd.DataFrame()
 df['NI Loss'] = mixer_ni_3_loss
 df['CLM Loss'] = mixer_clm_3_loss
-sns.regplot(df, x='CLM Loss', y='NI Loss', ci=None, truncate=False, label='Mixer, -3 residuals')
+sns.regplot(df, x='CLM Loss', y='NI Loss', truncate=False, label='Mixer, -3 residuals')
 
 # df = pd.DataFrame()
 # df['NI Loss'] = ni_loss
