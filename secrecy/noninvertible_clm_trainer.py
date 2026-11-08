@@ -500,6 +500,8 @@ def init_noninvertible_mixer(
         mlp_residual=False,
         freeze_layers=False,
         prefix_layers=True,
+        recurrent=False,
+        r_decay=1.
 
     ):
     model = SplitLanguageMixer(
