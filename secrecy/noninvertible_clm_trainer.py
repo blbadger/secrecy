@@ -511,7 +511,9 @@ def init_noninvertible_mixer(
         context_length,
         n_heads=n_heads,
         split_layer=split_layer,
-        mixer_residual=mixer_residual
+        mixer_residual=mixer_residual,
+        recurrent=recurrent,
+        r_decay=r_decay
         )
 
     if prefix_layers:
