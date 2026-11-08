@@ -79,9 +79,86 @@ class DoubleMixerBlock(nn.Module):
 		x, y = self.patch_ff(x) + residualf, self.patch_ff(y) + residualr
 		return x, y
 
+class HeadedRepeatCausalLinear(nn.Module):
+    """
+    Mixed-headed repeat module for ParallelRepeatHeads
+    """
+
+    def __init__(self, dim: int, heads: int, decay=False, decay_constant=1):
+
+        super().__init__()
+
+        # Standard weight + bias
+        self.weight = nn.Parameter(torch.randn(heads, dim))
+        self.bias = nn.Parameter(torch.zeros(heads, dim))
+        self.heads = heads
+        if decay:
+            self.decay_value = nn.Parameter(torch.ones(2, 1))
+            self.decay_constant = decay_constant
+        else:
+            self.decay_value = None
+
+    def vector_to_matrix(self, v: torch.Tensor) -> torch.Tensor:
+        """
+        Given a matrix v of shape (k, m) and head number h >= 0, 
+        returns an (k x m x m) matrix M where M[i, j] = v[i] if 
+        j >= i, and 0 otherwise.
+
+        For example, if v = [[a, b, c, d], [e, f, g, h]], k=2 then M will be:
+
+        [[
+            [ a  a  a  a ]
+            [ 0  b  b  b ]
+            [ 0  0  c  c ]
+            [ 0  0  0  d ]
+        ],
+        [
+            [ a  b  c  d ]
+            [ 0  b  c  d ]
+            [ 0  0  c  d ]
+            [ 0  0  0  d ]
+        ]]
+
+        """
+        # Expects v is a preformed tensor with shape [k, D]
+        m = v.shape[-1] # vector shape
+
+        # Create index grids for rows and columns
+        i, j = torch.meshgrid(
+            torch.arange(m, device=v.device),
+            torch.arange(m, device=v.device),
+            indexing="ij",
+        )
+        if self.decay_value is not None:
+            M = torch.where(
+                j >= i, v[:self.heads//2, j]*(torch.clip(self.decay_value[1], min=0.9, max=1)**((j-i)/self.decay_constant)), torch.zeros(m, m, device=v.device, dtype=v.dtype)
+            )
+            M = torch.cat((M, torch.where(
+                j >= i, v[self.heads//2:, i]*(torch.clip(self.decay_value[1], min=0.9, max=1)**((j-i)/self.decay_constant)), torch.zeros(m, m, device=v.device, dtype=v.dtype)
+            )), dim=0)
+        else:
+            M = torch.where(
+                j >= i, v[:self.heads//2, j], torch.zeros(m, m, device=v.device, dtype=v.dtype)
+            )
+            M = torch.cat((M, torch.where(
+                j >= i, v[self.heads//2:, i], torch.zeros(m, m, device=v.device, dtype=v.dtype)
+            )), dim=0)
+
+        return M
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.to(device) # x has shape [b * h, e, t]
+        # W has shape [h, t, t] and is repeated to make [b * h, t, t]
+        W = self.vector_to_matrix(self.weight).repeat(x.shape[0]//self.heads, 1, 1) 
+        output = torch.bmm(x, W)
+        repeated_bias = self.bias.repeat(x.shape[0]//self.heads, 1) # [h, t] repeated to [b * h, t]
+        repeated_bias = repeated_bias.unsqueeze(1).repeat(1, x.shape[1], 1) # repeated to [b * h, e, t]
+        output += repeated_bias
+        return output
+
 class MixerBlock(nn.Module):
 
-	def __init__(self, dim, length=512, expand_conv=False, kernel=1, n_heads=0, mixer_residual=True, mlp_residual=True):
+	def __init__(self, dim, length=512, expand_conv=False, kernel=1, n_heads=0, mixer_residual=True, mlp_residual=True, recurrent=False, r_decay=1.):
 		super().__init__()
 		self.patch_layernorm = nn.LayerNorm(dim)
 		self.seq_layernorm = nn.LayerNorm(dim)
@@ -92,8 +169,12 @@ class MixerBlock(nn.Module):
 			self.conv = ConvForward(length)
 		else:
 			if n_heads > 0:
-				self.conv = MixerHead(dim, length, dim//n_heads, n_heads)
-			else:
+				if recurrent:
+					decay = r_decay < 1.
+					self.conv = HeadedRepeatCausalLinear(dim, n_heads, decay=decay, decay_constant=r_decay)
+				else:
+					self.conv = MixerHead(dim, length, dim//n_heads, n_heads)
+			elif n_heads == 0:
 				self.conv = nn.Conv1d(length, length, kernel, padding='same')
 		self.n_heads = n_heads
 		self.expand_conv = expand_conv
@@ -168,47 +249,10 @@ class MixerHead(nn.Module):
 		hidden_layer = self.out_proj(hidden_layer)
 		return hidden_layer
 
-class MLPMixerBlock(nn.Module):
-	"""
-	Matrix multiply-based implementation of inter-token weights (instead of 1D convs). Less performant and
-	flexible than 1D convs, prefer that unless there is a specific reason to use matmults.
-	"""
-
-	def __init__(self, dim, length,  mixer_residual=True, mlp_residual=True):
-		super().__init__()
-		self.patch_layernorm = nn.LayerNorm(dim)
-		self.seq_layernorm = nn.LayerNorm(dim)
-		self.dim = dim
-		self.length = length
-		self.patch_ff = FeedForward(dim)
-		self.conv = nn.Linear(length, length)
-		self.mixer_residual = mixer_residual
-		self.mlp_residual = mlp_residual
-
-
-	def forward(self, x: torch.tensor):
-		if x.dim() > 3:
-			x = rearrange(x, 'b p t f -> (b p) t f')
-
-		self.conv.weight.data = torch.tril(self.conv.weight)
-		residual = x
-		x = self.seq_layernorm(x)
-		x = rearrange(x, 'b t h -> b h t')
-		x = self.conv(x)
-		x = rearrange(x, 'b h t -> b t h')
-		if self.mixer_residual:
-			x += residual
-
-		residual = x
-		x = self.patch_layernorm(x)
-		x = self.patch_ff(x)
-		if self.mlp_residual:
-			x += residual
-		return x
 
 class LanguageMixer(nn.Module):
 
-	def __init__(self, n_vocab, dim, depth, length, tie_weights=False, n_heads=0, kernel=1):
+	def __init__(self, n_vocab, dim, depth, length, tie_weights=False, n_heads=0, kernel=1, recurrent=False, r_decay=1.):
 		super().__init__()
 		self.wte = nn.Embedding(n_vocab, dim)
 		self.mixerblocks = nn.ModuleList(
@@ -217,7 +261,9 @@ class LanguageMixer(nn.Module):
 				length = length,
 				expand_conv = False,
 				n_heads = n_heads,
-				kernel = kernel
+				kernel = kernel,
+				recurrent=recurrent,
+				r_decay=r_decay
 				)
 			for i in range(depth)]
 			)
@@ -288,7 +334,7 @@ class InverterMixer(nn.Module):
 
 class SplitLanguageMixer(nn.Module):
 
-	def __init__(self, n_vocab, dim, depth, length, tie_weights=False, n_heads=0, kernel=1, split_layer=None, mlp_residual=True, mixer_residual=True):
+	def __init__(self, n_vocab, dim, depth, length, tie_weights=False, n_heads=0, kernel=1, split_layer=None, mlp_residual=True, mixer_residual=True, recurrent=False, r_decay=1.):
 		super().__init__()
 		self.wte = nn.Embedding(n_vocab, dim)
 		self.mixerblocks = nn.ModuleList(
@@ -299,7 +345,9 @@ class SplitLanguageMixer(nn.Module):
 				n_heads = n_heads,
 				kernel = kernel,
 				mlp_residual = mlp_residual,
-				mixer_residual = mixer_residual
+				mixer_residual = mixer_residual,
+				recurrent=recurrent,
+				r_decay=r_decay
 				)
 			for i in range(depth)]
 			)
