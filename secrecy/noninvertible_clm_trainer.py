@@ -774,7 +774,7 @@ if __name__ == '__main__':
     decoder_dim = 512
     noninv_layers = 0
     model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, decoder_dim=decoder_dim, mixer_residual=True, noninv_layers=noninv_layers, recurrent=True, r_decay=1.)
-
+    print (model)
     # n_tokens_obfuscated = 512
     # decoder_dim = 512
 
