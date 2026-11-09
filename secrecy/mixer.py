@@ -80,81 +80,81 @@ class DoubleMixerBlock(nn.Module):
 		return x, y
 
 class HeadedRepeatCausalLinear(nn.Module):
-    """
-    Mixed-headed repeat module for ParallelRepeatHeads
-    """
+	"""
+	Mixed-headed repeat module for ParallelRepeatHeads
+	"""
 
-    def __init__(self, dim: int, heads: int, decay=False, decay_constant=1):
+	def __init__(self, dim: int, heads: int, decay=False, decay_constant=1):
 
-        super().__init__()
+		super().__init__()
 
-        # Standard weight + bias
-        self.weight = nn.Parameter(torch.randn(heads, dim))
-        self.bias = nn.Parameter(torch.zeros(heads, dim))
-        self.heads = heads
-        if decay:
-            self.decay_value = nn.Parameter(torch.ones(2, 1))
-            self.decay_constant = decay_constant
-        else:
-            self.decay_value = None
+		# Standard weight + bias
+		self.weight = nn.Parameter(torch.randn(heads, dim))
+		self.bias = nn.Parameter(torch.zeros(heads, dim))
+		self.heads = heads
+		if decay:
+			self.decay_value = nn.Parameter(torch.ones(2, 1))
+			self.decay_constant = decay_constant
+		else:
+			self.decay_value = None
 
-    def vector_to_matrix(self, v: torch.Tensor) -> torch.Tensor:
-        """
-        Given a matrix v of shape (k, m) and head number h >= 0, 
-        returns an (k x m x m) matrix M where M[i, j] = v[i] if 
-        j >= i, and 0 otherwise.
+	def vector_to_matrix(self, v: torch.Tensor) -> torch.Tensor:
+		"""
+		Given a matrix v of shape (k, m) and head number h >= 0, 
+		returns an (k x m x m) matrix M where M[i, j] = v[i] if 
+		j >= i, and 0 otherwise.
 
-        For example, if v = [[a, b, c, d], [e, f, g, h]], k=2 then M will be:
+		For example, if v = [[a, b, c, d], [e, f, g, h]], k=2 then M will be:
 
-        [[
-            [ a  a  a  a ]
-            [ 0  b  b  b ]
-            [ 0  0  c  c ]
-            [ 0  0  0  d ]
-        ],
-        [
-            [ a  b  c  d ]
-            [ 0  b  c  d ]
-            [ 0  0  c  d ]
-            [ 0  0  0  d ]
-        ]]
+		[[
+			[ a  a  a  a ]
+			[ 0  b  b  b ]
+			[ 0  0  c  c ]
+			[ 0  0  0  d ]
+		],
+		[
+			[ a  b  c  d ]
+			[ 0  b  c  d ]
+			[ 0  0  c  d ]
+			[ 0  0  0  d ]
+		]]
 
-        """
-        # Expects v is a preformed tensor with shape [k, D]
-        m = v.shape[-1] # vector shape
+		"""
+		# Expects v is a preformed tensor with shape [k, D]
+		m = v.shape[-1] # vector shape
 
-        # Create index grids for rows and columns
-        i, j = torch.meshgrid(
-            torch.arange(m, device=v.device),
-            torch.arange(m, device=v.device),
-            indexing="ij",
-        )
-        if self.decay_value is not None:
-            M = torch.where(
-                j >= i, v[:self.heads//2, j]*(torch.clip(self.decay_value[1], min=0.9, max=1)**((j-i)/self.decay_constant)), torch.zeros(m, m, device=v.device, dtype=v.dtype)
-            )
-            M = torch.cat((M, torch.where(
-                j >= i, v[self.heads//2:, i]*(torch.clip(self.decay_value[1], min=0.9, max=1)**((j-i)/self.decay_constant)), torch.zeros(m, m, device=v.device, dtype=v.dtype)
-            )), dim=0)
-        else:
-            M = torch.where(
-                j >= i, v[:self.heads//2, j], torch.zeros(m, m, device=v.device, dtype=v.dtype)
-            )
-            M = torch.cat((M, torch.where(
-                j >= i, v[self.heads//2:, i], torch.zeros(m, m, device=v.device, dtype=v.dtype)
-            )), dim=0)
+		# Create index grids for rows and columns
+		i, j = torch.meshgrid(
+			torch.arange(m, device=v.device),
+			torch.arange(m, device=v.device),
+			indexing="ij",
+		)
+		if self.decay_value is not None:
+			M = torch.where(
+				j >= i, v[:self.heads//2, j]*(torch.clip(self.decay_value[1], min=0.9, max=1)**((j-i)/self.decay_constant)), torch.zeros(m, m, device=v.device, dtype=v.dtype)
+			)
+			M = torch.cat((M, torch.where(
+				j >= i, v[self.heads//2:, i]*(torch.clip(self.decay_value[1], min=0.9, max=1)**((j-i)/self.decay_constant)), torch.zeros(m, m, device=v.device, dtype=v.dtype)
+			)), dim=0)
+		else:
+			M = torch.where(
+				j >= i, v[:self.heads//2, j], torch.zeros(m, m, device=v.device, dtype=v.dtype)
+			)
+			M = torch.cat((M, torch.where(
+				j >= i, v[self.heads//2:, i], torch.zeros(m, m, device=v.device, dtype=v.dtype)
+			)), dim=0)
 
-        return M
+		return M
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x.to(device) # x has shape [b * h, e, t]
-        # W has shape [h, t, t] and is repeated to make [b * h, t, t]
-        W = self.vector_to_matrix(self.weight).repeat(x.shape[0]//self.heads, 1, 1) 
-        output = torch.bmm(x, W)
-        repeated_bias = self.bias.repeat(x.shape[0]//self.heads, 1) # [h, t] repeated to [b * h, t]
-        repeated_bias = repeated_bias.unsqueeze(1).repeat(1, x.shape[1], 1) # repeated to [b * h, e, t]
-        output += repeated_bias
-        return output
+	def forward(self, x: torch.Tensor) -> torch.Tensor:
+		x = x.to(device) # x has shape [b * h, e, t]
+		# W has shape [h, t, t] and is repeated to make [b * h, t, t]
+		W = self.vector_to_matrix(self.weight).repeat(x.shape[0]//self.heads, 1, 1) 
+		output = torch.bmm(x, W)
+		repeated_bias = self.bias.repeat(x.shape[0]//self.heads, 1) # [h, t] repeated to [b * h, t]
+		repeated_bias = repeated_bias.unsqueeze(1).repeat(1, x.shape[1], 1) # repeated to [b * h, e, t]
+		output += repeated_bias
+		return output
 
 class MixerBlock(nn.Module):
 
@@ -360,12 +360,12 @@ class SplitLanguageMixer(nn.Module):
 			self._init_weights()
 
 	def _init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Linear) or isinstance(m, HeadedRepeatCausalLinear):
-                # Kaiming He initialization for Swish activation
-                nn.init.kaiming_normal_(m.weight)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
+		for m in self.modules():
+			if isinstance(m, nn.Linear) or isinstance(m, HeadedRepeatCausalLinear):
+				# Kaiming He initialization for Swish activation
+				nn.init.kaiming_normal_(m.weight)
+				if m.bias is not None:
+					nn.init.zeros_(m.bias)
 
 	def forward(self, input_ids, labels=None, **kwargs):
 		x = input_ids
