@@ -356,6 +356,16 @@ class SplitLanguageMixer(nn.Module):
 			self.wte.weight = self.lm_head.weight
 		self.cel = nn.CrossEntropyLoss()
 		self.split_layer = split_layer
+		if recurrent:
+			self._init_weights()
+
+	def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear) or isinstance(m, HeadedRepeatCausalLinear):
+                # Kaiming He initialization for Swish activation
+                nn.init.kaiming_normal_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
 	def forward(self, input_ids, labels=None, **kwargs):
 		x = input_ids

@@ -101,7 +101,7 @@ compress_provider_factor=1
 
 
 ni_losses, clm_losses = [], []
-for i in range(200000, 500000, 20000):
+for i in range(10000, 200000, 20000):
     # noninv_layers = 6
     decoder_dim = 512
     noninv_layers = 0
@@ -110,7 +110,7 @@ for i in range(200000, 500000, 20000):
     original_inverter_state = inverter.state_dict()
     
     # load_model, train inverter from scratch (model remains frozen)
-    model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_6nomidresid_d512_b32x4/step_{i}/clm_model.safetensors"
+    model_checkpoint_path = f"{checkpoint_root}/noninvertible_srm_d512_b32x4/step_{i}/clm_model.safetensors"
     model_state_dict = load_file(model_checkpoint_path)
 
     # deals with unwrapped modules
