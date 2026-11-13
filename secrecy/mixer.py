@@ -157,6 +157,41 @@ class HeadedRepeatCausalLinear(nn.Module):
 		output += repeated_bias
 		return output
 
+class MixerHead(nn.Module):
+
+	def __init__(self, dim, length, hidden_dim, n_heads):
+		super().__init__()
+		self.n_heads = n_heads
+		self.proj_head = nn.ModuleList(
+			[nn.Linear(dim, hidden_dim)
+			for i in range(n_heads)]
+			)
+
+		self.convs = nn.ModuleList(
+			[nn.Conv1d(length, length, 1)
+			for i in range(n_heads)]
+			)
+
+		self.out_proj = nn.Linear(dim, dim)
+		self.GeLU = nn.GELU()
+
+	def forward(self, x: torch.tensor):
+		hidden_layer = []
+
+		for head in range(self.n_heads):
+			weight = self.convs[head].weight
+			masked_weight = torch.tril(rearrange(weight, 'f d p -> p f d'))
+			masked_weight = rearrange(masked_weight, 'p f d -> f d p').contiguous()
+			
+			projection = self.proj_head[head](x)
+			conv_projection = F.conv1d(projection, masked_weight, bias=self.convs[head].bias)
+			hidden_layer.append(conv_projection)
+
+		# concatenate and project multi-headed output
+		hidden_layer = torch.cat(hidden_layer, dim=2)
+		hidden_layer = self.out_proj(hidden_layer)
+		return hidden_layer
+
 class MixerBlock(nn.Module):
 
 	def __init__(self, dim, length=512, expand_conv=False, kernel=1, n_heads=0, mixer_residual=True, mlp_residual=True, recurrent=False, r_decay=1.):
@@ -214,41 +249,6 @@ class MixerBlock(nn.Module):
 		if self.mlp_residual:
 			x += residual
 		return x
-
-class MixerHead(nn.Module):
-
-	def __init__(self, dim, length, hidden_dim, n_heads):
-		super().__init__()
-		self.n_heads = n_heads
-		self.proj_head = nn.ModuleList(
-			[nn.Linear(dim, hidden_dim)
-			for i in range(n_heads)]
-			)
-
-		self.convs = nn.ModuleList(
-			[nn.Conv1d(length, length, 1)
-			for i in range(n_heads)]
-			)
-
-		self.out_proj = nn.Linear(dim, dim)
-		self.GeLU = nn.GELU()
-
-	def forward(self, x: torch.tensor):
-		hidden_layer = []
-
-		for head in range(self.n_heads):
-			weight = self.convs[head].weight
-			masked_weight = torch.tril(rearrange(weight, 'f d p -> p f d'))
-			masked_weight = rearrange(masked_weight, 'p f d -> f d p').contiguous()
-			
-			projection = self.proj_head[head](x)
-			conv_projection = F.conv1d(projection, masked_weight, bias=self.convs[head].bias)
-			hidden_layer.append(conv_projection)
-
-		# concatenate and project multi-headed output
-		hidden_layer = torch.cat(hidden_layer, dim=2)
-		hidden_layer = self.out_proj(hidden_layer)
-		return hidden_layer
 
 
 class LanguageMixer(nn.Module):
