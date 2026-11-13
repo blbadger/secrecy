@@ -502,7 +502,6 @@ def init_noninvertible_mixer(
         prefix_layers=True,
         recurrent=False,
         r_decay=1.
-
     ):
     model = SplitLanguageMixer(
         vocab_size, 
@@ -523,7 +522,7 @@ def init_noninvertible_mixer(
 
     for i in layers:
         model.mixerblocks[i].mixer_residual = mixer_residual
-        model.mixerblocks[i].mlp_residual = transformer_residual
+        model.mixerblocks[i].mlp_residual = mixer_residual
         toggle_grads(model.mixerblocks[i], freeze_layers)
 
     inverter = InverterMixer(
@@ -774,8 +773,25 @@ if __name__ == '__main__':
 
     n_tokens_obfuscated = 512
     decoder_dim = 512
-    noninv_layers = 0
-    model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, decoder_dim=decoder_dim, mixer_residual=True, noninv_layers=noninv_layers, recurrent=True, r_decay=1.)
+    noninv_layers = 1
+    model, inverter = init_noninvertible_mixer(
+        tokenizer, 
+        vocab_size, 
+        context_length=512, 
+        decoder_dim=decoder_dim, 
+        inverter_layers=8, 
+        model_layers=16, 
+        n_heads=4,
+        noninv_layers=noninv_layers,
+        split_layer=8,
+        mixer_residual=False,
+        mlp_residual=True,
+        freeze_layers=True,
+        prefix_layers=False,
+        recurrent=False,
+        r_decay=1.
+    ) 
+
     print (model)
     # n_tokens_obfuscated = 512
     # decoder_dim = 512
@@ -852,7 +868,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_srm_d{decoder_dim}_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_mixer_2nomidresid_freeze_d{decoder_dim}_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir

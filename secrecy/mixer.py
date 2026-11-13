@@ -4,6 +4,7 @@ from einops import rearrange
 import torch.nn.functional as F
 import torch.nn as nn
 
+device = 'cuda'
 def FeedForward(dim, expansion_factor=4):
 	inner_dim = int(dim * expansion_factor)
 	return nn.Sequential(
