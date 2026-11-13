@@ -104,13 +104,31 @@ ni_losses, clm_losses = [], []
 for i in range(10000, 200000, 20000):
     # noninv_layers = 6
     decoder_dim = 512
-    noninv_layers = 0
-    model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, decoder_dim=decoder_dim, mixer_residual=True, noninv_layers=noninv_layers, recurrent=False, r_decay=1.)
+    n_tokens_obfuscated = 512
+    decoder_dim = 512
+    noninv_layers = 1
+    model, inverter = init_noninvertible_mixer(
+        tokenizer, 
+        vocab_size, 
+        context_length=512, 
+        decoder_dim=decoder_dim, 
+        inverter_layers=8, 
+        model_layers=16, 
+        n_heads=4,
+        noninv_layers=noninv_layers,
+        split_layer=8,
+        mixer_residual=False,
+        mlp_residual=True,
+        freeze_layers=True,
+        prefix_layers=False,
+        recurrent=False,
+        r_decay=1.
+    ) 
     # model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True, noninv_layers=noninv_layers)
     original_inverter_state = inverter.state_dict()
     
     # load_model, train inverter from scratch (model remains frozen)
-    model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_allresids_d512_b32x4/step_{i}/clm_model.safetensors"
+    model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_2nomidresid_freeze_d512_b32x4/step_{i}/clm_model.safetensors"
     model_state_dict = load_file(model_checkpoint_path)
 
     # deals with unwrapped modules

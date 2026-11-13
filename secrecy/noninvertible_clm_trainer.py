@@ -496,8 +496,8 @@ def init_noninvertible_mixer(
         n_heads=4,
         noninv_layers=1,
         split_layer=8,
-        mixer_residual=False,
-        mlp_residual=False,
+        mixer_residual=True,
+        mlp_residual=True,
         freeze_layers=False,
         prefix_layers=True,
         recurrent=False,
@@ -517,12 +517,12 @@ def init_noninvertible_mixer(
     if prefix_layers:
         layers = [i for i in range(noninv_layers)]
     else:
-        layers = [split_layer-i for i in range(noninv_layers)]
-
+        layers = [split_layer-i-1 for i in range(noninv_layers)]
+    print (f'Noninvertible layers: {layers}')
     for i in layers:
         model.mixerblocks[i].mixer_residual = mixer_residual
-        model.mixerblocks[i].mlp_residual = mixer_residual
-        toggle_grads(model.mixerblocks[i], freeze_layers)
+        model.mixerblocks[i].mlp_residual = mlp_residual
+        toggle_grads(model.mixerblocks[i], not freeze_layers)
 
     inverter = InverterMixer(
         vocab_size, 
@@ -784,7 +784,7 @@ if __name__ == '__main__':
         noninv_layers=noninv_layers,
         split_layer=8,
         mixer_residual=False,
-        mlp_residual=True,
+        mlp_residual=False,
         freeze_layers=True,
         prefix_layers=False,
         recurrent=False,
