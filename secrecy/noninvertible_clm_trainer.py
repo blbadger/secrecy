@@ -336,6 +336,7 @@ def train_noninvertible_clm(
             else:
                 with accelerator.autocast() and torch.no_grad():
                     _, _, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
+            obfuscated_tokens = noninvertible_clm.obfuscated_tokens # get the indices of secret tokens for inverter loss
             
             if train_inverter:
                 toggle_grads(inverter, bool=True)
@@ -347,8 +348,8 @@ def train_noninvertible_clm(
                     else:
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
                         ignore_index = -100
-                        nonpad_tokens = labels[:, :n_tokens_obfuscated] != ignore_index
-                        inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
+                        nonpad_tokens = labels[:, obfuscated_tokens] != ignore_index
+                        inverter_loss = inverter_loss[:, obfuscated_tokens].sum() / nonpad_tokens.sum()
 
                 inverter_optimizer.zero_grad()
                 accelerator.backward(inverter_loss)

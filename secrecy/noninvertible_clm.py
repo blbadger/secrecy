@@ -143,6 +143,7 @@ class ParallelNoninvertibleModel(nn.Module):
         unified_decoder=None,
         unified_encoder=None,
         n_tokens_obfuscated=None,
+        random_secrecy=False,
         no_provider_modules=False,
         compress_provider_factor=1,
         route_method='embedding_split',
@@ -152,10 +153,11 @@ class ParallelNoninvertibleModel(nn.Module):
         super().__init__()
         self.cel = nn.CrossEntropyLoss()
         self.tokenized_length = tokenized_length
-        if not n_tokens_obfuscated:
-            self.obfuscate_first_n = self.tokenized_length
-        else:
-            self.obfuscate_first_n = n_tokens_obfuscated
+        if n_tokens_obfuscated:
+            self.obfuscate_first_n = obfuscate_first_n
+            self.obfuscated_tokens = torch.arange(n_tokens_obfuscated)
+        self.random_secrecy = random_secrecy
+
         self.dim = dim
         self.inversion_head = nn.Linear(dim, n_vocab)
         self.clm_head = nn.Linear(dim, n_vocab)
@@ -164,9 +166,6 @@ class ParallelNoninvertibleModel(nn.Module):
         
         self.n_vocab = n_vocab
         self.clm_head = nn.Linear(dim, n_vocab)
-        # for split embeddings
-        self.client_proj = nn.Linear(dim//2, dim)
-        self.provider_proj = nn.Linear(dim//2, dim)
         self.dim = dim
 
         self.clm_loss_only = clm_loss_only
@@ -178,7 +177,7 @@ class ParallelNoninvertibleModel(nn.Module):
         self.no_provider_modules = no_provider_modules
 
         for _, param in self.inversion_decoder.named_parameters():
-            param.requires_grad = False 
+            param.requires_grad = False # will be updated if trained
         for _, param in self.parallel_encoder.named_parameters():
             param.requires_grad = True
         for _, param in self.unified_decoder.named_parameters():
@@ -240,27 +239,28 @@ class ParallelNoninvertibleModel(nn.Module):
 
     def forward(self, input_ids, labels=None, attention_mask=None):
         x = input_ids.to(device)
+        if self.random_secrecy:
+            self.obfuscated_tokens = torch.randperm(x.shape[1])[:self.n_tokens_obfuscated]
+        self.obfuscated_tokens = self.obfuscated_tokens.to(x.dtype).to(x.device)
 
         encoder_outputs = self.unified_encoder(input_ids=x, attention_mask=attention_mask).last_hidden_state # shape [b t e]
-
+        client_input = encoder_outputs
         if self.route_method == 'embedding_split':
-            client_input = self.client_proj(encoder_outputs[:, :, :self.encoder_dim//2])
-            provider_input = self.provider_proj(encoder_outputs[:, :, self.encoder_dim//2:])
+            secret_provider_input = encoder_outputs[:, self.obfuscate_first_n, :]
+            if self.provider_emb_compression > 1:
+                secret_provider_input = self.out_provider_proj(self.in_provider_proj(secret_provider_input))
+            provider_input[:, self.obfuscated_tokens, :] = secret_provider_input
 
         elif self.route_method == 'unroll_embedding':
-            client_input = encoder_outputs
+            assert not self.random_secrecy, 'Random secrecy not implemented with unrolled embeddings'
             # unroll last obfuscated embedding and concat with all others
             unrolled_embedding = torch.zeros((client_input.shape[0], self.obfuscate_first_n, client_input.shape[2])).to(client_input.device).to(client_input.dtype)
             for m in range(self.embeddings_to_unroll):
                 unrolled_embedding += self.unroll_embedding(encoder_outputs[:, self.obfuscate_first_n-(m+1), :].unsqueeze(1))
-            provider_input = torch.cat((unrolled_embedding, encoder_outputs[:, self.obfuscate_first_n:, :]), dim=1)
+            provider_input = torch.cat((unrolled_embedding, encoder_outputs[:, self.obfuscated_tokens, :]), dim=1)
 
         if self.provider_in_proj is not None:
             provider_input = self.provider_in_proj(provider_input)
-
-        if self.provider_emb_compression > 1:
-            prefix_provider_input = self.out_provider_proj(self.in_provider_proj(provider_input[:, :self.obfuscate_first_n, :]))
-            provider_input = torch.cat((prefix_provider_input, provider_input[:, self.obfuscate_first_n:, :]), dim=1) # cat along token dim
 
         if self.mask_secret_tokens:
             provider_input = self.mask_obfuscated_tokens(provider_input)
@@ -288,10 +288,14 @@ class ParallelNoninvertibleModel(nn.Module):
         output = rearrange(output, 'b t e -> b e t')
 
         if labels is not None:
-            shift_logits = output[..., self.obfuscate_first_n:-1]
-            shift_labels = labels.to(device)[..., self.obfuscate_first_n+1:]
+            if not self.random_secrecy:
+                shift_logits = output[..., self.obfuscate_first_n:-1]
+                shift_labels = labels.to(device)[..., self.obfuscate_first_n+1:]
+            else:
+                shift_logits = output[..., :-1]
+                shift_labels = labels.to(device)[..., 1:]
             clm_loss = self.cel(shift_logits, shift_labels) 
-            inversion_loss = self.cel(inverted_output[..., :self.obfuscate_first_n], labels[..., :self.obfuscate_first_n])
+            inversion_loss = self.cel(inverted_output[..., self.obfuscated_tokens], labels[..., :self.obfuscated_tokens])
         else:
             clm_loss = 0
             inversion_loss = 0
