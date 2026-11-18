@@ -18,7 +18,7 @@ def plot_curves(input_paths, labels, report_tokens=False, report_flops=True, par
         if lines:
             data = jsonlines.open(input_path)
         else:
-            data = json.load(open(input_path))['log_history']
+            data = json.load(open(input_path))['log_history']   
         
         for iteration in data:
             print ('iteration', iteration)
