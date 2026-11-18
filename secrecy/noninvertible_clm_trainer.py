@@ -336,7 +336,7 @@ def train_noninvertible_clm(
             else:
                 with accelerator.autocast() and torch.no_grad():
                     _, _, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
-            obfuscated_tokens = noninvertible_clm.obfuscated_tokens # get the indices of secret tokens for inverter loss
+            obfuscated_tokens = unwrap_model(noninvertible_clm).obfuscated_tokens # get the indices of secret tokens for inverter loss
             
             if train_inverter:
                 toggle_grads(inverter, bool=True)
