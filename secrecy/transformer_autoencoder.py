@@ -262,15 +262,12 @@ class SplitModel(LlamaModel):
         hidden_states = inputs_embeds
         position_embeddings = self.rotary_emb(hidden_states, position_ids=position_ids)
 
-        self.config.num_hidden_layers = 16
-        for layer, decoder_layer in enumerate(self.layers[:self.num_hidden_layers]):
+        for layer, decoder_layer in enumerate(self.layers):
             if layer == self.split_layer:
                 if self.compression > 1:
                     hidden_states = self.down(hidden_states)
-                split_hidden_states = hidden_states
-                if self.compression > 1:
                     hidden_states = self.up(hidden_states)
-
+                split_hidden_states = hidden_states
             hidden_states = decoder_layer(
                 hidden_states,
                 attention_mask=causal_mask,

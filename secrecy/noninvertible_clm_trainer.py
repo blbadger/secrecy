@@ -219,7 +219,7 @@ def evaluate_noninvertibility(
 
             if isinstance(unwrap_model(noninvertible_clm), DualRootParallelModel):
                 inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
-            elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer):
+            elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer) or isinstance(unwrap_model(noninvertible_clm), NonInvertibleTransformer):
                 inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # loss on all inputs
             else:
                 inverter_loss, inverter_logits = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
@@ -342,7 +342,7 @@ def train_noninvertible_clm(
                 with accelerator.autocast():
                     if isinstance(unwrap_model(noninvertible_clm), DualRootParallelModel):
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach()[:, :n_tokens_obfuscated], labels=labels[:, :n_tokens_obfuscated])# with reduction
-                    elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer):
+                    elif isinstance(unwrap_model(noninvertible_clm), NonInvertibleMixer) or isinstance(unwrap_model(noninvertible_clm), NonInvertibleTransformer):
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels) # loss on all inputs
                     else:
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
@@ -433,7 +433,8 @@ def init_noninvertible_transformer(
         mlp_residual=True,
         freeze_noresids=False,
         prefix_noninv=True,
-        noninv_layers=1
+        noninv_layers=1,
+        compression=1
     ):
     encoder_config_kwargs = { 
         'hidden_size': decoder_dim,
@@ -473,7 +474,8 @@ def init_noninvertible_transformer(
         freeze_noresids=freeze_noresids,
         split_layer=split_layer,
         prefix_noninv=prefix_noninv,
-        noninv_layers=noninv_layers
+        noninv_layers=noninv_layers,
+        compression=compression
     )
     split_model.config.num_hidden_layers = model_layers
 
@@ -772,45 +774,47 @@ if __name__ == '__main__':
 
     n_tokens_obfuscated = 512
     decoder_dim = 512
-    noninv_layers = 1
-    model, inverter = init_noninvertible_mixer(
-        tokenizer, 
-        vocab_size, 
-        context_length=512, 
-        decoder_dim=decoder_dim, 
-        inverter_layers=8, 
-        model_layers=16, 
-        n_heads=4,
-        noninv_layers=noninv_layers,
-        split_layer=8,
-        mixer_residual=False,
-        mlp_residual=False,
-        freeze_layers=True,
-        prefix_layers=False,
-        recurrent=False,
-        r_decay=1.
-    ) 
-
-    print (model)
-    # n_tokens_obfuscated = 512
-    # decoder_dim = 512
-
-    # model, inverter = init_noninvertible_transformer(
+    #noninv_layers = 2
+    #model, inverter = init_noninvertible_mixer(
     #    tokenizer, 
     #    vocab_size, 
     #    context_length=512, 
-    #    decoder_dim=512, 
+    #    decoder_dim=decoder_dim, 
     #    inverter_layers=8, 
     #    model_layers=16, 
     #    n_heads=4,
-    #    noninv_layers=2,
-    #    attn_residual=False,
-    #    mlp_residual=True,
-    #    freeze_noresids=False,
-    #    prefix_noninv=True,
-    #    split_layer=2,
-    # )
+    #    noninv_layers=noninv_layers,
+    #    split_layer=8,
+    #    mixer_residual=False,
+    #    mlp_residual=False,
+    #    freeze_layers=True,
+    #    prefix_layers=False,
+    #    recurrent=False,
+    #    r_decay=1.
+    #) 
 
+    #print (model)
+    # n_tokens_obfuscated = 512
+    # decoder_dim = 512
+
+    model, inverter = init_noninvertible_transformer(
+        tokenizer, 
+        vocab_size, 
+        context_length=512, 
+        decoder_dim=512, 
+        inverter_layers=8, 
+        model_layers=16, 
+        n_heads=4,
+        noninv_layers=0,
+        attn_residual=False,
+        mlp_residual=True,
+        freeze_noresids=False,
+        prefix_noninv=True,
+        split_layer=8,
+        compression=512
+    )
+
+    print (model)
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
 
@@ -867,7 +871,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_mixer_1nomidresid_freeze_d{decoder_dim}_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_transformer_c128_noni_d{decoder_dim}_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -894,7 +898,7 @@ if __name__ == '__main__':
         train_inverter=False,
         train_for_noninv=False,
         n_tokens_obfuscated=n_tokens_obfuscated,
-        #start_step=200000
+        start_step=10000
     )   
 
 
