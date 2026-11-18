@@ -38,6 +38,9 @@ from safetensors.torch import save_file, save_model, load_model, load_file
 import os
 import jsonlines
 import time
+import torch._dynamo
+torch._dynamo.config.recompile_limit = 128  # older versions: cache_size_limit
+
 
 def remap_keys(key):
     prefix = "_orig_mod."
@@ -90,7 +93,7 @@ decoder_dim=512
 model, inverter = init_noninvertible_transformer(tokenizer, vocab_size, decoder_dim=decoder_dim)
 original_inverter_state = inverter.state_dict()
 #compress_secret_factor = 1
-#unroll_secret_embedding = False
+unroll_secret_embedding = False
 #mask_secret_tokens = False
 #model, inverter = init_dualroot_parallelmodel(
 #        tokenizer, 
@@ -180,12 +183,33 @@ shutil.copy(code_path, output_dir)
 
 ni_losses, clm_losses = [], []
 for i in range(10000, 200000, 20000):
-    noninv_layers = 3
-    model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True, noninv_layers=noninv_layers)
+    # noninv_layers = 6
+    decoder_dim = 512
+    n_tokens_obfuscated = 512
+    decoder_dim = 512
+    noninv_layers = 1
+    model, inverter = init_noninvertible_mixer(
+        tokenizer, 
+        vocab_size, 
+        context_length=512, 
+        decoder_dim=decoder_dim, 
+        inverter_layers=8, 
+        model_layers=16, 
+        n_heads=4,
+        noninv_layers=noninv_layers,
+        split_layer=8,
+        mixer_residual=False,
+        mlp_residual=True,
+        freeze_layers=True,
+        prefix_layers=False,
+        recurrent=False,
+        r_decay=1.
+    ) 
+    # model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True, noninv_layers=noninv_layers)
     original_inverter_state = inverter.state_dict()
     
     # load_model, train inverter from scratch (model remains frozen)
-    model_checkpoint_path = f"{checkpoint_root}/noninvertible_1noresid_d512_b64x2/step_{i}/clm_model.safetensors"
+    model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_2nomidresid_freeze_d512_b32x4/step_{i}/clm_model.safetensors"
     model_state_dict = load_file(model_checkpoint_path)
 
     # deals with unwrapped modules
@@ -251,9 +275,9 @@ for i in range(10000, 200000, 20000):
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    output_dir = f"{data_root}/noninvertible_check_transformer_noni_b{batch_size}x{n_devices}"
+    output_dir = f"{data_root}/noninvertible_check_allmidresid_b{batch_size}x{n_devices}"
     print ('Model loaded, inverter initialized, training inverter only')
-
+    print (f'output dir: {output_dir}')
     # save driver code snapshot in checkpoint dir
     code_path = os.path.abspath(__file__)
     if not os.path.isdir(output_dir):
@@ -279,11 +303,13 @@ for i in range(10000, 200000, 20000):
         train_clm = False,
         n_tokens_obfuscated=n_tokens_obfuscated
     )
+    time.sleep(5)
     path = output_dir + '/eval_log.jsonl'
     ni_loss = list(jsonlines.open(path))[-1]['eval_inverter_loss']
     clm_loss = list(jsonlines.open(path))[-1]['eval_clm_loss']
     ni_losses.append(ni_loss)
     clm_losses.append(clm_loss)
+    del model, model_optimizer, inverter, inverter_optimizer, accelerator
 
 print (ni_losses)
 print (clm_losses)

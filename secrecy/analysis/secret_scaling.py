@@ -10,8 +10,8 @@ def plot_curves(input_paths, labels, report_tokens=False, report_flops=True, par
         train_steps, test_steps = [], []
         train_losses, test_losses = [], []
         compute_factor = int(input_path.split('_')[1])**2 * int(input_path.split('_')[2].strip('n.json')) * 1.5e7
-        if lines:
-            compute_factor = compute_factor*1.375
+        # if lines:
+        #     compute_factor = compute_factor*1.375
         
         parameters = [2.5, 10, 55, 252, 400]
 
@@ -115,7 +115,7 @@ paths = [
     '/home/bbadger/Desktop/secret_512_n8.json',
     '/home/bbadger/Desktop/secret_512_n16.json',    
     '/home/bbadger/Desktop/secret_1024_n16.json',
-    '/home/bbadger/Desktop/secret_1024_n24.json',
+    # '/home/bbadger/Desktop/secret_1024_n24.json',
 ]
 
 labels = [
@@ -125,7 +125,7 @@ labels = [
     'd=512, n=8',
     'd=512, n=16',
     'd=1024, n=16',
-    'd=1024, n=24'
+    # 'd=1024, n=24'
 ]
 
 plot_curves(paths, labels, lines=True)

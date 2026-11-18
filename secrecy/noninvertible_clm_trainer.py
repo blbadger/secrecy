@@ -336,6 +336,7 @@ def train_noninvertible_clm(
             else:
                 with accelerator.autocast() and torch.no_grad():
                     _, _, noninvertible_embedding = noninvertible_clm(inputs, labels=labels)
+            obfuscated_tokens = noninvertible_clm.obfuscated_tokens # get the indices of secret tokens for inverter loss
             
             if train_inverter:
                 toggle_grads(inverter, bool=True)
@@ -347,8 +348,8 @@ def train_noninvertible_clm(
                     else:
                         inverter_loss, _ = inverter(inputs_embeds=noninvertible_embedding.detach(), labels=labels)
                         ignore_index = -100
-                        nonpad_tokens = labels[:, :n_tokens_obfuscated] != ignore_index
-                        inverter_loss = inverter_loss[:, :n_tokens_obfuscated].sum() / nonpad_tokens.sum()
+                        nonpad_tokens = labels[:, obfuscated_tokens] != ignore_index
+                        inverter_loss = inverter_loss[:, obfuscated_tokens].sum() / nonpad_tokens.sum()
 
                 inverter_optimizer.zero_grad()
                 accelerator.backward(inverter_loss)
@@ -496,10 +497,12 @@ def init_noninvertible_mixer(
         n_heads=4,
         noninv_layers=1,
         split_layer=8,
-        mixer_residual=False,
-        mlp_residual=False,
+        mixer_residual=True,
+        mlp_residual=True,
         freeze_layers=False,
-        prefix_layers=True
+        prefix_layers=True,
+        recurrent=False,
+        r_decay=1.
     ):
     model = SplitLanguageMixer(
         vocab_size, 
@@ -508,17 +511,18 @@ def init_noninvertible_mixer(
         context_length,
         n_heads=n_heads,
         split_layer=split_layer,
-        mixer_residual=mixer_residual
+        recurrent=recurrent,
+        r_decay=r_decay
         )
     if prefix_layers:
         layers = [i for i in range(noninv_layers)]
     else:
-        layers = [split_layer-i for i in range(noninv_layers)]
-
+        layers = [split_layer-i-1 for i in range(noninv_layers)]
+    print (f'Noninvertible layers: {layers}')
     for i in layers:
         model.mixerblocks[i].mixer_residual = mixer_residual
-        model.mixerblocks[i].mlp_residual = transformer_residual
-        toggle_grads(model.mixerblocks[i], False)
+        model.mixerblocks[i].mlp_residual = mlp_residual
+        toggle_grads(model.mixerblocks[i], not freeze_layers)
 
     inverter = InverterMixer(
         vocab_size, 
@@ -746,13 +750,13 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
-    n_tokens_obfuscated = 256
-    compress_provider_factor = 1
-    route_method = 'unroll_embedding'
-    client_dim = 64
-    decoder_dim = 64
+    n_tokens_obfuscated = 128
+    compress_provider_factor = 128
+    route_method = 'embedding_split'
+    client_dim = 512
+    decoder_dim = 512
     embeddings_to_unroll = 1
-    #model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, decoder_dim=decoder_dim, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
+    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, decoder_dim=decoder_dim, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
 
     # compress_secret_factor = 1
     # unroll_secret_embedding = True
@@ -766,30 +770,61 @@ if __name__ == '__main__':
     #     mask_secret_tokens=mask_secret_tokens
     # )
 
+    #n_tokens_obfuscated = 512
+    #decoder_dim = 512
+    #noninv_layers = 1
+    #model, inverter = init_noninvertible_mixer(
+    #    tokenizer, 
+    #    vocab_size, 
+    #    context_length=512, 
+    #    decoder_dim=decoder_dim, 
+    #    inverter_layers=8, 
+    #    model_layers=16, 
+    #    n_heads=4,
+    #    noninv_layers=noninv_layers,
+    #    split_layer=8,
+    #    mixer_residual=False,
+    #    mlp_residual=False,
+    #    freeze_layers=True,
+    #    prefix_layers=False,
+    #    recurrent=False,
+    #    r_decay=1.
+    #) 
+
+    #model, inverter = init_noninvertible_transformer(
+    #   tokenizer, 
+    #   vocab_size, 
+    #   context_length=512, 
+    #   decoder_dim=512, 
+    #   inverter_layers=8, 
+    #   model_layers=16, 
+    #   n_heads=4,
+    #   noninv_layers=3,
+    #   attn_residual=False,
+    #   mlp_residual=True,
+    #   freeze_noresids=False,
+    #   prefix_noninv=True,
+    #   split_layer=3,
+    #)
+    print (model)
     # n_tokens_obfuscated = 512
     # decoder_dim = 512
-    # noninv_layers=6
-    # model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, decoder_dim=decoder_dim, mixer_residual=True, noninv_layers=noninv_layers)
 
-
-    n_tokens_obfuscated = 512
-    decoder_dim = 512
-
-    model, inverter = init_noninvertible_transformer(
-       tokenizer, 
-       vocab_size, 
-       context_length=512, 
-       decoder_dim=512, 
-       inverter_layers=8, 
-       model_layers=16, 
-       n_heads=4,
-       noninv_layers=3,
-       attn_residual=False,
-       mlp_residual=True,
-       freeze_noresids=False,
-       prefix_noninv=True,
-       split_layer=3,
-    )
+    # model, inverter = init_noninvertible_transformer(
+    #    tokenizer, 
+    #    vocab_size, 
+    #    context_length=512, 
+    #    decoder_dim=512, 
+    #    inverter_layers=8, 
+    #    model_layers=16, 
+    #    n_heads=4,
+    #    noninv_layers=2,
+    #    attn_residual=False,
+    #    mlp_residual=True,
+    #    freeze_noresids=False,
+    #    prefix_noninv=True,
+    #    split_layer=2,
+    # )
 
     train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
     test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
@@ -847,7 +882,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_transformer_3noresidpre_d{decoder_dim}_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_parallel_s128_c128_ni_d{decoder_dim}_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -871,11 +906,12 @@ if __name__ == '__main__':
         checkpoint_dir=checkpoint_dir,
         steps=num_steps,
         train_clm=True,
-        train_inverter=False,
-        train_for_noninv=False,
+        train_inverter=True,
+        train_for_noninv=True,
         n_tokens_obfuscated=n_tokens_obfuscated,
         alpha=1.,
         beta=1.,
         #start_step=120000
     )   
+
 
