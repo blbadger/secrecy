@@ -208,10 +208,10 @@ class ResidLlamaDecoderLayer(GradientCheckpointingLayer):
 
 class SplitModel(LlamaModel):
 
-    def __init__(self, config, split_layer=8, num_hidden_layers=16, compression=1, expansion=1, 
+    def __init__(self, config, split_layer=8, num_hidden_layers=16, compression=1,  
                  attn_residual=True, mlp_residual=True, freeze_noresids=False, prefix_noninv=False, noninv_layers=0):
         super().__init__(config)
-        self.split_layer = 8
+        self.split_layer = split_layer
         self.num_hidden_layers = num_hidden_layers
         self.compression = compression
 
@@ -226,12 +226,8 @@ class SplitModel(LlamaModel):
 
         # unique compression projections per noninvertibility layer if compression
         if compression > 1:
-            self.downs = {str(l): nn.Linear(config.hidden_size, config.hidden_size // compression) for l in noninv_layers}
-            self.ups = {str(l): nn.Linear(config.hidden_size // compression, config.hidden_size) for l in noninv_layers}
-
-        elif expansion > 1:
-            self.down = nn.Linear(config.hidden_size, config.hidden_size * expansion)
-            self.up = nn.Linear(config.hidden_size * expansion, config.hidden_size)
+            self.downs = nn.ModuleDict({str(l): nn.Linear(config.hidden_size, config.hidden_size // compression) for l in noninv_layers})
+            self.ups = nn.ModuleDict({str(l): nn.Linear(config.hidden_size // compression, config.hidden_size) for l in noninv_layers})
 
         self.noninv_layers = noninv_layers
         for i in noninv_layers:
@@ -271,11 +267,14 @@ class SplitModel(LlamaModel):
         position_embeddings = self.rotary_emb(hidden_states, position_ids=position_ids)
 
         for layer, decoder_layer in enumerate(self.layers):
-            if layer in noninv_layers:
+            if layer in self.noninv_layers:
                 if self.compression > 1:
                     hidden_states = self.downs[str(layer)](hidden_states)
                     hidden_states = self.ups[str(layer)](hidden_states)
+            
+            if layer == self.split_layer:
                 split_hidden_states = hidden_states
+
             hidden_states = decoder_layer(
                 hidden_states,
                 attention_mask=causal_mask,

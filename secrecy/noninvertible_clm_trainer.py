@@ -805,7 +805,7 @@ if __name__ == '__main__':
         inverter_layers=8, 
         model_layers=16, 
         n_heads=4,
-        noninv_layers=0,
+        noninv_layers=2,
         attn_residual=False,
         mlp_residual=True,
         freeze_noresids=False,
@@ -895,12 +895,12 @@ if __name__ == '__main__':
         checkpoint_dir=checkpoint_dir,
         steps=num_steps,
         train_clm=True,
-        train_inverter=True,
-        train_for_noninv=True,
+        train_inverter=False,
+        train_for_noninv=False,
         n_tokens_obfuscated=n_tokens_obfuscated,
         alpha=1.,
         beta=.1,
-        start_step=10000
+        # start_step=10000
     )   
 
 
