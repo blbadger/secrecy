@@ -214,18 +214,26 @@ class SplitModel(LlamaModel):
         self.split_layer = 8
         self.num_hidden_layers = num_hidden_layers
         self.compression = compression
-        if compression > 1:
-            self.down = nn.Linear(config.hidden_size, config.hidden_size // compression)
-            self.up = nn.Linear(config.hidden_size // compression, config.hidden_size)
-        elif expansion > 1:
-            self.down = nn.Linear(config.hidden_size, config.hidden_size * expansion)
-            self.up = nn.Linear(config.hidden_size * expansion, config.hidden_size)
 
         module_list = []
         if prefix_noninv:
             noninv_layers = [i for i in range(noninv_layers)]
         else:
             noninv_layers = [split_layer-i for i in range(noninv_layers)]
+
+        if not noninv_layers:
+            noninv_layers = [split_layer]
+
+        # unique compression projections per noninvertibility layer if compression
+        if compression > 1:
+            self.downs = {str(l): nn.Linear(config.hidden_size, config.hidden_size // compression) for l in noninv_layers}
+            self.ups = {str(l): nn.Linear(config.hidden_size // compression, config.hidden_size) for l in noninv_layers}
+
+        elif expansion > 1:
+            self.down = nn.Linear(config.hidden_size, config.hidden_size * expansion)
+            self.up = nn.Linear(config.hidden_size * expansion, config.hidden_size)
+
+        self.noninv_layers = noninv_layers
         for i in noninv_layers:
             module = ResidLlamaDecoderLayer(config, i, attn_residual=attn_residual, mlp_residual=mlp_residual, freeze_params=freeze_noresids) 
             self.layers[i] = module
@@ -263,10 +271,10 @@ class SplitModel(LlamaModel):
         position_embeddings = self.rotary_emb(hidden_states, position_ids=position_ids)
 
         for layer, decoder_layer in enumerate(self.layers):
-            if layer == self.split_layer:
+            if layer in noninv_layers:
                 if self.compression > 1:
-                    hidden_states = self.down(hidden_states)
-                    hidden_states = self.up(hidden_states)
+                    hidden_states = self.downs[str(layer)](hidden_states)
+                    hidden_states = self.ups[str(layer)](hidden_states)
                 split_hidden_states = hidden_states
             hidden_states = decoder_layer(
                 hidden_states,
