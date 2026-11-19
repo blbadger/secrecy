@@ -145,7 +145,7 @@ for i in range(10000, 200000, 20000):
     original_inverter_state = inverter.state_dict()
     
     # load_model, train inverter from scratch (model remains frozen)
-    model_checkpoint_path = f"{checkpoint_root}/noninvertible_transformer_c128_noni_d512_b32x4/step_{i}/clm_model.safetensors"
+    model_checkpoint_path = f"{checkpoint_root}/noninvertible_transformer_c512_ni_d512_b32x4/step_{i}/clm_model.safetensors"
     model_state_dict = load_file(model_checkpoint_path)
 
     # deals with unwrapped modules

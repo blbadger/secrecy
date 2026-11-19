@@ -871,7 +871,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_transformer_c128_noni_d{decoder_dim}_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_transformer_c512_ni_d{decoder_dim}_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -895,9 +895,11 @@ if __name__ == '__main__':
         checkpoint_dir=checkpoint_dir,
         steps=num_steps,
         train_clm=True,
-        train_inverter=False,
-        train_for_noninv=False,
+        train_inverter=True,
+        train_for_noninv=True,
         n_tokens_obfuscated=n_tokens_obfuscated,
+        alpha=1.,
+        beta=.1,
         start_step=10000
     )   
 
