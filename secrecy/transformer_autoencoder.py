@@ -221,11 +221,12 @@ class SplitModel(LlamaModel):
         else:
             noninv_layers = [split_layer-i for i in range(noninv_layers)]
 
-        if not noninv_layers:
-            noninv_layers = [split_layer]
-
         # unique compression projections per noninvertibility layer if compression
         if compression > 1:
+            # if no noninvertibility layers, apply compression etc. to the split layer
+            if not noninv_layers:
+                noninv_layers = [split_layer]
+                
             self.downs = nn.ModuleDict({str(l): nn.Linear(config.hidden_size, config.hidden_size // compression) for l in noninv_layers})
             self.ups = nn.ModuleDict({str(l): nn.Linear(config.hidden_size // compression, config.hidden_size) for l in noninv_layers})
 
