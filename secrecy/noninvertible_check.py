@@ -182,7 +182,7 @@ if not os.path.isdir(output_dir):
 shutil.copy(code_path, output_dir)
 
 ni_losses, clm_losses = [], []
-for i in range(10000, 200000, 20000):
+for i in range(200000, 200001, 20000):
     # noninv_layers = 6
     decoder_dim = 512
     n_tokens_obfuscated = 512
@@ -205,11 +205,20 @@ for i in range(10000, 200000, 20000):
         recurrent=False,
         r_decay=1.
     ) 
+
+    n_tokens_obfuscated = 256
+    compress_provider_factor = 128 
+    route_method = 'embedding_split'
+    client_dim = 512 
+    decoder_dim = 512 
+    embeddings_to_unroll = 1 
+    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, decoder_dim=decoder_dim, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
+
     # model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True, noninv_layers=noninv_layers)
     original_inverter_state = inverter.state_dict()
     
     # load_model, train inverter from scratch (model remains frozen)
-    model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_2nomidresid_freeze_d512_b32x4/step_{i}/clm_model.safetensors"
+    model_checkpoint_path = f"{checkpoint_root}/noninvertible_parallel_s256_c128_noni_d512_b64x2/step_{i}/clm_model.safetensors"
     model_state_dict = load_file(model_checkpoint_path)
 
     # deals with unwrapped modules
@@ -233,7 +242,7 @@ for i in range(10000, 200000, 20000):
     model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
 
-    num_steps = 20000
+    num_steps = 100000
     save_every = 20000
     evaluate_every = 20000
     total_training_steps = num_steps * num_gpus
@@ -275,7 +284,7 @@ for i in range(10000, 200000, 20000):
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    output_dir = f"{data_root}/noninvertible_check_allmidresid_b{batch_size}x{n_devices}"
+    output_dir = f"{data_root}/noninvertible_check_parallel_c128_ni_b{batch_size}x{n_devices}"
     print ('Model loaded, inverter initialized, training inverter only')
     print (f'output dir: {output_dir}')
     # save driver code snapshot in checkpoint dir

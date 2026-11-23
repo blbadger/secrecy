@@ -750,7 +750,7 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
-    n_tokens_obfuscated = 128
+    n_tokens_obfuscated = 512 // 10
     compress_provider_factor = 128
     route_method = 'embedding_split'
     client_dim = 512
@@ -882,7 +882,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_parallel_s128_c128_ni_d{decoder_dim}_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_parallel_s256_c128_noni_d{decoder_dim}_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -906,8 +906,8 @@ if __name__ == '__main__':
         checkpoint_dir=checkpoint_dir,
         steps=num_steps,
         train_clm=True,
-        train_inverter=True,
-        train_for_noninv=True,
+        train_inverter=False,
+        train_for_noninv=False,
         n_tokens_obfuscated=n_tokens_obfuscated,
         alpha=1.,
         beta=1.,
