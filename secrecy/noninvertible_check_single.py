@@ -1,0 +1,213 @@
+import os
+import json
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from einops import rearrange
+import transformers
+from transformers import AutoTokenizer
+
+from datasets import load_dataset, load_from_disk, concatenate_datasets
+import transformers
+from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig, LlamaForCausalLM, LlamaModel
+from prettytable import PrettyTable
+from safetensors.torch import save_file, load_model, load_file
+from safetensors import safe_open
+import safetensors
+import datasets
+from datasets import Dataset
+import warnings
+import shutil
+from dotenv import load_dotenv
+from pathlib import Path
+from tqdm import tqdm
+
+from transformer_autoencoder import AbbreviatedModel, SuffixModel, AutoencodingTransformer, AutoencodingTransformerMod, UnrolledAutoencodingTransformer
+from transformer_autoencoder import SplitModel, AllAutoencodingTransformer, SecretTransformer
+from noninvertible_clm import NonInvertibleTransformer, ParallelNoninvertibleModel
+from noninvertible_clm_trainer import init_noninvertible_parallelmodel, init_noninvertible_transformer, init_dualroot_parallelmodel, unwrap_state_dict, load_checkpoint, toggle_grads, train_noninvertible_clm, init_noninvertible_mixer
+
+from secret_decoder import SecretDecoder
+from tqdm import tqdm
+from accelerate import Accelerator
+from accelerate.utils import DistributedDataParallelKwargs
+from transformers import get_linear_schedule_with_warmup
+from accelerate.utils import TorchDynamoPlugin
+
+from safetensors.torch import save_file, save_model, load_model, load_file
+import os
+import jsonlines
+import time
+import torch._dynamo
+torch._dynamo.config.recompile_limit = 128  # older versions: cache_size_limit
+
+
+def remap_keys(key):
+    prefix = "_orig_mod."
+    if key.startswith(prefix):
+        key = key.replace(prefix, "")
+        return key
+    else:    
+        return key
+
+
+warnings.filterwarnings(action='ignore')
+
+load_dotenv()
+checkpoint_root = os.getenv('CHECKPOINT_ROOT')
+data_root = os.getenv('DATA_ROOT')
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
+tokenizer.pad_token = tokenizer.eos_token
+vocab_size = len(tokenizer)
+
+n_tokens_obfuscated = 512
+compress_provider_factor=1
+# route_method='unroll_embedding'
+# model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, compress_provider_factor=compress_provider_factor, route_method=route_method)
+
+# noninv_layers = 8
+# model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, mixer_residual=True, noninv_layers=noninv_layers)
+
+
+#model, inverter = init_noninvertible_transformer(
+#    tokenizer,
+#    vocab_size,
+#    context_length=512,
+#    decoder_dim=512,
+#    inverter_layers=8,
+#    model_layers=16,
+#    n_heads=4,
+#    split_layer=1,
+#    attn_residual=False,
+#    mlp_residual=True,
+#    freeze_noresids=False
+#    )
+
+#noninv_layers=4
+#decoder_dim=512
+#model, inverter = init_noninvertible_mixer(tokenizer, vocab_size, decoder_dim=decoder_dim, mixer_residual=True, noninv_layers=noninv_layers)
+
+n_tokens_obfuscated = 384
+random_secrecy = False
+compress_provider_factor = 128 
+route_method = 'embedding_split'
+client_dim = 512 
+decoder_dim = 512 
+embeddings_to_unroll = 1 
+model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, decoder_dim=decoder_dim, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll, random_secrecy=random_secrecy)
+
+original_inverter_state = inverter.state_dict()
+#compress_secret_factor = 1
+#unroll_secret_embedding = False
+#mask_secret_tokens = False
+#model, inverter = init_dualroot_parallelmodel(
+#        tokenizer, 
+#        vocab_size, 
+#        n_tokens_obfuscated, 
+#        compress_secret_factor=compress_secret_factor, 
+#        unroll_secret_embedding=unroll_secret_embedding,
+#        mask_secret_tokens=mask_secret_tokens
+#    )
+
+
+# load_model, train inverter from scratch (model remains frozen)
+model_checkpoint_path = f"{checkpoint_root}/noninvertible_parallel_s384_c128_d512_b64x2/step_200000/clm_model.safetensors"
+model_state_dict = load_file(model_checkpoint_path)
+#model_checkpoint_path = f"{checkpoint_root}/noninvertible_mixer_nomidresid_freeze_noni_b32x4/step_200000/clm_model.safetensors"
+#model_state_dict = load_file(model_checkpoint_path)
+
+# deals with unwrapped modules
+remapped_state_dict = {remap_keys(k): v for k, v in model_state_dict.items()}
+model.load_state_dict(remapped_state_dict, strict=False) # inverter may not match
+inverter.load_state_dict(original_inverter_state)
+
+train_path = f"{data_root}/fineweb-edu-tokenized-train-c512-8k"
+test_path = f"{data_root}/fineweb-edu-tokenized-test-c512-8k"
+
+# load datasets and duplicate entries
+train_dataset = load_from_disk(train_path)
+test_dataset = load_from_disk(test_path)
+
+learning_rate = 2e-4
+num_gpus = torch.cuda.device_count()
+batch_size = 128 // num_gpus
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) 
+test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+model_optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+inverter_optimizer = torch.optim.AdamW(inverter.parameters(), lr=learning_rate)
+
+num_steps = 100000
+total_training_steps = num_steps * num_gpus # corrects for multiple steps per global step
+
+save_every=20000
+evaluate_every=20000
+
+model_scheduler = get_linear_schedule_with_warmup(
+    model_optimizer,
+    num_warmup_steps=500,
+    num_training_steps=total_training_steps,
+)
+
+inverter_scheduler = get_linear_schedule_with_warmup(
+    inverter_optimizer,
+    num_warmup_steps=500,
+    num_training_steps=total_training_steps
+)
+
+# Configure the compilation backend
+dynamo_plugin = TorchDynamoPlugin(
+    backend="inductor",
+    mode="default",
+    fullgraph=False,
+    dynamic=False
+)
+
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+
+accelerator = Accelerator(mixed_precision='fp16', dynamo_plugin=dynamo_plugin, kwargs_handlers=[ddp_kwargs])
+model, model_optimizer, inverter, inverter_optimizer, train_dataloader, test_dataloader, model_scheduler, inverter_scheduler = accelerator.prepare(
+    model, 
+    model_optimizer, 
+    inverter, 
+    inverter_optimizer, 
+    train_dataloader, 
+    test_dataloader,
+    model_scheduler,
+    inverter_scheduler
+)
+
+loss_fn = torch.nn.CrossEntropyLoss()
+
+n_devices = accelerator.num_processes
+output_dir = f"{data_root}/noninvertible_check_parallel_s384_c128_b{batch_size}x{n_devices}"
+print ('Model loaded, inverter initialized, training inverter only')
+
+# save driver code snapshot in checkpoint dir
+code_path = os.path.abspath(__file__)
+if not os.path.isdir(output_dir):
+    os.mkdir(output_dir)
+shutil.copy(code_path, output_dir)
+train_noninvertible_clm(
+    train_dataloader, 
+    test_dataloader, 
+    model, 
+    model_optimizer, 
+    inverter, 
+    inverter_optimizer, 
+    loss_fn,
+    accelerator,
+    tokenizer=tokenizer,
+    clm_scheduler=model_scheduler, 
+    inverter_scheduler=inverter_scheduler, 
+    checkpoint_dir=output_dir,
+    steps=num_steps,
+    save_every=save_every,
+    evaluate_every=evaluate_every,
+    train_clm = False,
+    n_tokens_obfuscated=n_tokens_obfuscated
+    )
+

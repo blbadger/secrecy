@@ -550,12 +550,13 @@ def init_noninvertible_parallelmodel(
     decoder_dim=512, 
     client_dim=512,
     inverter_layers=1, 
-    unified_encoder_layers=2,
+    unified_encoder_layers=4,
     provider_model_layers=16, 
-    client_encoder_layers=2,
-    unified_decoder_layers=2,
+    client_encoder_layers=3,
+    unified_decoder_layers=4,
     n_heads=4,
-    embeddings_to_unroll=1
+    embeddings_to_unroll=1,
+    random_secrecy=False
     ):
     # inversion model specification: must be bidirectional if the input token indices are not reversed
     config_kwargs = {
@@ -635,7 +636,8 @@ def init_noninvertible_parallelmodel(
         n_tokens_obfuscated=n_tokens_obfuscated,
         compress_provider_factor=compress_provider_factor,
         route_method=route_method,
-        embeddings_to_unroll=embeddings_to_unroll
+        embeddings_to_unroll=embeddings_to_unroll,
+        random_secrecy=random_secrecy
     )
     return model, inverter
 
@@ -750,13 +752,14 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(f'{data_root}/tokenizer_fineweb_8k')
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = len(tokenizer)
-    n_tokens_obfuscated = 128
+    n_tokens_obfuscated = 384 # 10 % redaction
     compress_provider_factor = 128
     route_method = 'embedding_split'
+    random_secrecy = False
     client_dim = 512
     decoder_dim = 512
     embeddings_to_unroll = 1
-    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, decoder_dim=decoder_dim, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll)
+    model, inverter = init_noninvertible_parallelmodel(tokenizer, vocab_size, n_tokens_obfuscated, decoder_dim=decoder_dim, compress_provider_factor=compress_provider_factor, route_method=route_method, client_dim=client_dim, embeddings_to_unroll=embeddings_to_unroll, random_secrecy=random_secrecy)
 
     # compress_secret_factor = 1
     # unroll_secret_embedding = True
@@ -882,7 +885,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_parallel_s128_c128_ni_d{decoder_dim}_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_parallel_s384_c128_d{decoder_dim}_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -906,8 +909,8 @@ if __name__ == '__main__':
         checkpoint_dir=checkpoint_dir,
         steps=num_steps,
         train_clm=True,
-        train_inverter=True,
-        train_for_noninv=True,
+        train_inverter=False,
+        train_for_noninv=False,
         n_tokens_obfuscated=n_tokens_obfuscated,
         alpha=1.,
         beta=1.,
