@@ -157,6 +157,7 @@ class ParallelNoninvertibleModel(nn.Module):
             self.obfuscate_first_n = n_tokens_obfuscated
             self.obfuscated_tokens = torch.arange(n_tokens_obfuscated)
         self.random_secrecy = random_secrecy
+        self.n_tokens_obfuscated = n_tokens_obfuscated
 
         self.dim = dim
         self.inversion_head = nn.Linear(dim, n_vocab)
