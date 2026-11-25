@@ -46,7 +46,7 @@ def plot_curves(input_paths, labels, report_tokens=False, lines=False):
     
         label = labels[i]
         print (label, test_losses[-1])
-        plt.scatter(test_steps, test_losses, label=f'{label} Eval', alpha=0.5)
+        plt.scatter(test_steps, test_losses, label=f'{label}', alpha=0.5)
         plt.plot(test_steps, test_losses)
         # plt.scatter(test_steps, test_losses, label=f'{label} Eval')
         # plt.plot(train_steps, train_losses)
