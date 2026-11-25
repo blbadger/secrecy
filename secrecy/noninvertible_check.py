@@ -133,11 +133,11 @@ for i in range(10000, 200000, 20000):
         inverter_layers=8, 
         model_layers=16, 
         n_heads=4,
-        noninv_layers=0,
-        attn_residual=False,
+        noninv_layers=2,
+        attn_residual=True,
         mlp_residual=True,
         freeze_noresids=False,
-        prefix_noninv=True,
+        prefix_noninv=False,
         split_layer=8,
         compression=512
     )  
@@ -145,7 +145,7 @@ for i in range(10000, 200000, 20000):
     original_inverter_state = inverter.state_dict()
     
     # load_model, train inverter from scratch (model remains frozen)
-    model_checkpoint_path = f"{checkpoint_root}/noninvertible_transformer_c512_ni_d512_b32x4/step_{i}/clm_model.safetensors"
+    model_checkpoint_path = f"{checkpoint_root}/noninvertible_transformer_c512_2x_d512_b32x4/step_{i}/clm_model.safetensors"
     model_state_dict = load_file(model_checkpoint_path)
 
     # deals with unwrapped modules

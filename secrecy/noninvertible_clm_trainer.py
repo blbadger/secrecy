@@ -806,10 +806,10 @@ if __name__ == '__main__':
         model_layers=16, 
         n_heads=4,
         noninv_layers=2,
-        attn_residual=False,
+        attn_residual=True,
         mlp_residual=True,
         freeze_noresids=False,
-        prefix_noninv=True,
+        prefix_noninv=False,
         split_layer=8,
         compression=512
     )
@@ -871,7 +871,7 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
 
     n_devices = accelerator.num_processes
-    checkpoint_dir = f"{data_root}/noninvertible_transformer_c512_ni_d{decoder_dim}_b{batch_size}x{n_devices}"
+    checkpoint_dir = f"{data_root}/noninvertible_transformer_c512_2x_d{decoder_dim}_b{batch_size}x{n_devices}"
 
     print (f"training model, saving to {checkpoint_dir}")
     # save driver code snapshot in checkpoint dir
@@ -900,7 +900,7 @@ if __name__ == '__main__':
         n_tokens_obfuscated=n_tokens_obfuscated,
         alpha=1.,
         beta=.1,
-        # start_step=10000
+        start_step=110000
     )   
 
 
